@@ -240,21 +240,5 @@ class QuickNote(models.Model):
     def __str__(self):
         return f'Note by {self.user.email} at {self.created_at.strftime("%Y-%m-%d %H:%M:%S")}'
 
-class Course(models.Model):
-    course_name = models.CharField(max_length=100,null=False,blank=False)
-    description = models.TextField()
-    instructor = models.ForeignKey(User, on_delete=models.CASCADE, related_name='courses')
-    deadline = models.DateField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
 
-    def __str__(self):
-        return self.course_name
-
-class Routine(models.Model):
-    daily_routine = models.CharField(max_length=255)
-    course_overview = models.TextField()
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"Routine created at {self.created_at.strftime('%Y-%m-%d %H:%M:%S')}"
 
