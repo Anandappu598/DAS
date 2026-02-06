@@ -6,10 +6,10 @@ from django_filters.rest_framework import DjangoFilterBackend
 from .serializers import (LoginSerializers, SignupWithOTPSerializer, VerifySignupOTPSerializer,
                           ForgotPasswordSerializer,ResetPasswordSerializer,ProjectSerializer,ApprovalRequestSerializer,
                           ApprovalResponseSerializer,TaskSerializer,TaskAssigneeSerializer,SubTaskSerializer,QuickNoteSerializer,
-                          CourseSerializer,RoutineSerializer)
+                          CatalogSerializer)
 from .utils import (create_otp_record, send_password_reset_confirmation, send_password_reset_otp, send_signup_otp_to_admin,send_account_approval_email, verify_otp,
     send_password_reset_otp, send_password_reset_confirmation, verify_otp)
-from .models import User,Projects,ApprovalRequest,ApprovalResponse,Task,TaskAssignee,SubTask,QuickNote,Course,Routine
+from .models import User,Projects,ApprovalRequest,ApprovalResponse,Task,TaskAssignee,SubTask,QuickNote,Catalog
 from rest_framework import viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -332,38 +332,11 @@ class QuickNoteViewSet(viewsets.ModelViewSet):
         else:
             return[IsAuthenticated()]
         
-class CourseViewSet(viewsets.ModelViewSet):
+class CatalogViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
-    serializer_class = CourseSerializer
-    queryset = Course.objects.all()
+    serializer_class = CatalogSerializer
+    queryset = Catalog.objects.all()
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['instructor', 'deadline']
-    search_fields = ['course_name', 'description', 'instructor__email']
-    ordering_fields = ['created_at', 'deadline', 'course_name']
-
-    def get_queryset(self):
-        """Filter courses based on user permissions"""
-        user = self.request.user
-        if user.role == 'ADMIN':
-            return Course.objects.all()
-        else:
-            # Return courses created by the user
-            return Course.objects.filter(created_by=user)
-
-class RoutineViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated]
-    serializer_class = RoutineSerializer
-    queryset = Routine.objects.all()
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['created_at']
-    search_fields = ['daily_routine', 'course_overview']
+    filterset_fields = ['course', 'routine']
+    search_fields = ['course', 'routine']
     ordering_fields = ['created_at']
-
-    def get_queryset(self):
-
-        user = self.request.user
-        if user.role == 'ADMIN':
-            return Routine.objects.all()
-        else:
-            return Routine.objects.filter(created_by=user)
-        

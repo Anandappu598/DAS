@@ -241,5 +241,15 @@ class QuickNote(models.Model):
     def __str__(self):
         return f'Note by {self.user.email} at {self.created_at.strftime("%Y-%m-%d %H:%M:%S")}'
 
-
+class Catalog(models.Model):
+    catalog_choices = (
+        ('COURSE', 'course'),
+        ('ROUTINE','routine'),
+        ('WORK','work')
+    )
+    name = models.CharField(max_length=100)
+    description = models.TextField()
+    catalog_type = models.CharField(max_length=20,choices=catalog_choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+    instructors = models.ForeignKey(User,on_delete=models.CASCADE,related_name='instructors',null=True,blank=True)
 
