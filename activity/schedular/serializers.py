@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User, Projects, ApprovalRequest, ApprovalResponse, Task, TaskAssignee,SubTask,QuickNote,Course,Routine
+from .models import User, Projects, ApprovalRequest, ApprovalResponse, Task, TaskAssignee,SubTask,QuickNote,Catalog
 from django.contrib.auth import authenticate
 
 
@@ -99,18 +99,11 @@ class QuickNoteSerializer(serializers.ModelSerializer):
     class Meta:
         model = QuickNote
         fields = '__all__'
-        read_omly_fields = ('created_at')
-
-class CourseSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Course
-        fields = '__all__'
         read_only_fields = ('created_at',)
 
-class RoutineSerializer(serializers.ModelSerializer):
+class CatalogSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Routine
+        model = Catalog
         fields = '__all__'
-        read_only_fields = ('created_at')
-
+        read_only_fields = ('created_at',)
 
