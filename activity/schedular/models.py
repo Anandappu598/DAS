@@ -25,7 +25,7 @@ class User(AbstractBaseUser):
    )
    email = models.EmailField(max_length=255, unique=True)
    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='EMPLOYEE')
-   department = models.ForeignKey('Department',on_delete=models.CASCADE,related_name='department',null=False,blank=False)
+   department = models.ForeignKey('Department',on_delete=models.CASCADE,related_name='department',null=True,blank=True)
    is_active = models.BooleanField(default=True)
    phone_number = models.CharField(max_length=15, blank=True, null=True)
 
@@ -178,6 +178,7 @@ class Task(models.Model):
     project = models.ForeignKey(Projects, on_delete=models.CASCADE, related_name='tasks')
     priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default='MEDIUM')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    start_date = models.DateField(null=True, blank=True)
     due_date = models.DateField()
     completed_at = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

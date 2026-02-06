@@ -49,9 +49,9 @@ class TaskAssigneeAdmin(admin.ModelAdmin):
 
 @admin.register(QuickNote)
 class QuickNoteAdmin(admin.ModelAdmin):
-    list_display = ('title','created_at')
-    list_filter = ('title',)
-    search_fields = ('title',)
+    list_display = ('user','note_text','created_at')
+    list_filter = ('user','created_at')
+    search_fields = ('note_text','user__email')
     readonly_fields = ('created_at',)
 
 @admin.register(Course)
