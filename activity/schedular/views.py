@@ -1,7 +1,8 @@
 from django.shortcuts import render
-from rest_framework import generics, status, viewsets
+from rest_framework import generics, status, viewsets, filters
 from rest_framework.response import Response
 from rest_framework.decorators import action
+from django_filters.rest_framework import DjangoFilterBackend
 from .serializers import (LoginSerializers, SignupWithOTPSerializer, VerifySignupOTPSerializer,
                           ForgotPasswordSerializer,ResetPasswordSerializer,ProjectSerializer,ApprovalRequestSerializer,
                           ApprovalResponseSerializer,TaskSerializer,TaskAssigneeSerializer,SubTaskSerializer,QuickNoteSerializer,
@@ -19,7 +20,7 @@ from .permissions import IsAdmin,IsEmployee,IsManager,IsTeamLead
 class LoginViewSet(viewsets.GenericViewSet):
     permission_classes = [AllowAny]
     serializer_class = LoginSerializers
-
+    
     def create(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -119,6 +120,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
       permission_classes = [IsAuthenticated]
       serializer_class = ProjectSerializer
       queryset = Projects.objects.all()
+      filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+      filterset_fields = ['status', 'handled_by', 'created_by', 'project_lead']
+      search_fields = ['name', 'description']
+      ordering_fields = ['start_date', 'due_date', 'created_date', 'name']
       
       def perform_create(self, serializer):
           """Override create to add approval logic"""
@@ -146,6 +151,10 @@ class ApprovalRequestViewSet(viewsets.ModelViewSet):
     """ViewSet for users to create and view approval requests"""
     permission_classes = [IsAuthenticated]
     serializer_class = ApprovalRequestSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['reference_type', 'approval_type', 'status', 'requested_by']
+    search_fields = ['requested_by__email']
+    ordering_fields = ['created_at']
     
     def get_queryset(self):
         """Filter approvals based on user role"""
@@ -166,6 +175,10 @@ class ApprovalResponseViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = ApprovalResponseSerializer
     queryset = ApprovalResponse.objects.all()
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['action', 'reviewed_by', 'approval_request']
+    search_fields = ['reviewed_by__email', 'approval_request__requested_by__email']
+    ordering_fields = ['reviewed_at']
     
     def get_queryset(self):
         """Only admins can view approval responses"""
@@ -235,6 +248,10 @@ class TaskViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = TaskSerializer
     queryset = Task.objects.all()
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['priority', 'status', 'project', 'due_date', 'start_date']
+    search_fields = ['title', 'project__name']
+    ordering_fields = ['created_at', 'due_date', 'start_date', 'priority']
     
     def get_queryset(self):
         """Filter tasks based on user permissions"""
@@ -255,6 +272,10 @@ class TaskAssigneeViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = TaskAssigneeSerializer
     queryset = TaskAssignee.objects.all()
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['task', 'user', 'role']
+    search_fields = ['task__title', 'user__email']
+    ordering_fields = ['assigned_at']
     
     def get_queryset(self):
         """Filter task assignees based on user permissions"""
@@ -270,6 +291,10 @@ class SubTaskViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = SubTaskSerializer
     queryset = SubTask.objects.all()
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['task', 'status', 'due_date']
+    search_fields = ['title', 'task__title']
+    ordering_fields = ['created_at', 'due_date']
     
     def get_queryset(self):
         """Filter subtasks based on user permissions"""
@@ -288,6 +313,10 @@ class QuickNoteViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = QuickNoteSerializer
     queryset = QuickNote.objects.all()
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['user']
+    search_fields = ['note_text', 'user__email']
+    ordering_fields = ['created_at']
     def get_queryset(self):
         """Filter quick notes based on user permissions"""
         user = self.request.user
@@ -307,6 +336,10 @@ class CourseViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = CourseSerializer
     queryset = Course.objects.all()
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['instructor', 'deadline']
+    search_fields = ['course_name', 'description', 'instructor__email']
+    ordering_fields = ['created_at', 'deadline', 'course_name']
 
     def get_queryset(self):
         """Filter courses based on user permissions"""
@@ -321,6 +354,10 @@ class RoutineViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = RoutineSerializer
     queryset = Routine.objects.all()
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['created_at']
+    search_fields = ['daily_routine', 'course_overview']
+    ordering_fields = ['created_at']
 
     def get_queryset(self):
 
