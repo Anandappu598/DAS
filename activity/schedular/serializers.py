@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User, Projects, ApprovalRequest, ApprovalResponse, Task, TaskAssignee,SubTask,QuickNote,Catalog
+from .models import Pending, User, Projects, ApprovalRequest, ApprovalResponse, Task, TaskAssignee,SubTask,QuickNote,Catalog
 from django.contrib.auth import authenticate
 
 
@@ -107,3 +107,10 @@ class CatalogSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('created_at',)
 
+class PendingSerializer(serializers.ModelSerializer):
+    user_email = serializers.EmailField(source='user_id.email', read_only=True)
+    task_title = serializers.CharField(source='Daily_task_id.title', read_only=True)
+    
+    class Meta:
+        model = Pending
+        fields = '__all__'
