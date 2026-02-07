@@ -92,6 +92,7 @@ class Projects(models.Model):
     completed_date = models.DateField(null=True,blank=True)
     handled_by = models.ForeignKey(User,on_delete= models.CASCADE,related_name='handled_by',null = False,blank=False)
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_projects', null=True, blank=True)
+    is_approved = models.BooleanField(default=False)
 
     def __str__(self):
         return self.name
@@ -256,9 +257,28 @@ class Catalog(models.Model):
 class Pending(models.Model):
     user_id = models.ForeignKey(User,on_delete=models.CASCADE,related_name='pending_user')
     original_plan_date = models.DateField()
-    #Daily_task_id = models.ForeignKey('Daily_Activity',on_delete=models.CASCADE,related_name='pending_task')
+    Daily_task_id = models.ForeignKey('DailyActivity',on_delete=models.CASCADE,related_name='pending_task')
     Replanned_date = models.DateField()
     status = models.CharField(max_length=20,default='PENDING')
 
 
 
+class DailyActivity(models.Model):
+    status_choices = (
+        ('PENDING', 'Pending'),
+        ('IN_PROGRESS', 'In Progress'),
+        ('COMPLETED', 'Completed'),
+    )
+    user = models.ForeignKey(User,on_delete=models.CASCADE,related_name='daily_activities')
+    project = models.ForeignKey(Projects,on_delete=models.CASCADE,related_name='project_activities')
+    task = models.ForeignKey(Task,on_delete = models.CASCADE,related_name= 'task_activities')
+    title = models.CharField(max_length=150)
+    work_date = models.DateField()
+    planned_hours = models.IntegerField()
+    spending_hours = models.IntegerField()
+    started_working_hours = models.TimeField()
+    ending_working_hours = models.TimeField()
+    status = models.CharField(max_length=20,choices=status_choices,default='PENDING')   
+    description = models.TextField()
+    remarks = models.TextField(null=True,blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)

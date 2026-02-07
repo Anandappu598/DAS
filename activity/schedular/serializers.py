@@ -1,12 +1,13 @@
 from rest_framework import serializers
 from .models import Pending, User, Projects, ApprovalRequest, ApprovalResponse, Task, TaskAssignee,SubTask,QuickNote,Catalog
+from .models import User, Projects, ApprovalRequest, ApprovalResponse, Task, TaskAssignee,SubTask,QuickNote,Catalog,DailyActivity
 from django.contrib.auth import authenticate
 
 
 class SignupWithOTPSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
-    role = serializers.ChoiceField(choices=User.ROLE_CHOICES, default='student')
+    role = serializers.ChoiceField(choices=User.ROLE_CHOICES, default='EMPLOYEE')
     
     def validate_email(self, value):
         if User.objects.filter(email=value).exists():
@@ -114,3 +115,13 @@ class PendingSerializer(serializers.ModelSerializer):
     class Meta:
         model = Pending
         fields = '__all__'
+class DailyActivitySerializer(serializers.ModelSerializer):
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    project_name = serializers.CharField(source='project.name', read_only=True)
+    task_title = serializers.CharField(source='task.title', read_only=True)
+    
+    class Meta:
+        model = DailyActivity
+        fields = '__all__'
+        read_only_fields = ('created_at',)
+

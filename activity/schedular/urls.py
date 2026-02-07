@@ -18,6 +18,7 @@ router.register(r'quick-notes', views.QuickNoteViewSet, basename='quick-notes')
 router.register(r'catalog', views.CatalogViewSet, basename='catalog')
 router.register(r'pending', views.PendingViewSet, basename='pending')
 
+router.register(r'daily-activities', views.DailyActivityViewSet, basename='daily-activities')
 
 urlpatterns = [
     path('', include(router.urls)),

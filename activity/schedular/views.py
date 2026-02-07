@@ -6,14 +6,19 @@ from django_filters.rest_framework import DjangoFilterBackend
 from .serializers import (LoginSerializers, PendingSerializer, SignupWithOTPSerializer, VerifySignupOTPSerializer,
                           ForgotPasswordSerializer,ResetPasswordSerializer,ProjectSerializer,ApprovalRequestSerializer,
                           ApprovalResponseSerializer,TaskSerializer,TaskAssigneeSerializer,SubTaskSerializer,QuickNoteSerializer,
-                          CatalogSerializer,PendingSerializer)
+                          CatalogSerializer,PendingSerializer,DailyActivitySerializer)
 from .utils import (create_otp_record, send_password_reset_confirmation, send_password_reset_otp, send_signup_otp_to_admin,send_account_approval_email, verify_otp,
     send_password_reset_otp, send_password_reset_confirmation, verify_otp)
-from .models import User,Projects,ApprovalRequest,ApprovalResponse,Task,TaskAssignee,SubTask,QuickNote,Catalog,Pending
+from .models import (User,Projects,ApprovalRequest,ApprovalResponse,Task,TaskAssignee,SubTask,QuickNote,Catalog,Pending,
+Catalog,DailyActivity)
+from .utils import (create_otp_record, send_password_reset_confirmation, send_password_reset_otp, 
+                    send_signup_otp_to_admin, send_account_approval_email, verify_otp)
+from .models import User,Projects,ApprovalRequest,ApprovalResponse,Task,TaskAssignee,SubTask,QuickNote,Catalog,DailyActivity
 from rest_framework import viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from .permissions import IsAdmin,IsEmployee,IsManager,IsTeamLead
+from django.db import models
 
 # Create your views here.
 
@@ -243,6 +248,7 @@ class ApprovalResponseViewSet(viewsets.ModelViewSet):
             "message": f"Approval request {action.lower()} successfully",
             "response": ApprovalResponseSerializer(response).data
         }, status=status.HTTP_201_CREATED)
+    
 class TaskViewSet(viewsets.ModelViewSet):
     """ViewSet for managing tasks"""
     permission_classes = [IsAuthenticated]
@@ -324,13 +330,12 @@ class QuickNoteViewSet(viewsets.ModelViewSet):
             return QuickNote.objects.all()
         else:
             # Return quick notes created by the user
-            return QuickNote.objects.filter(created_by=user)
+            return QuickNote.objects.filter(user=user)
         
     def get_permissions(self):
         if self.action == 'create':
             self.permission_classes = [IsAdmin]
-        else:
-            return[IsAuthenticated()]
+        return [permission() for permission in self.permission_classes]
         
 class CatalogViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
@@ -349,3 +354,96 @@ class PendingViewSet(viewsets.ModelViewSet):
     filterset_fields = ['user_id', 'Daily_task_id', 'status']
     search_fields = ['user_id__email', 'Daily_task_id__title']
     ordering_fields = ['original_plan_date', 'Replanned_date']
+    filterset_fields = ['catalog_type', 'instructors']
+    search_fields = ['name', 'description']
+    ordering_fields = ['created_at']
+
+class DailyActivityViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing daily activities"""
+    permission_classes = [IsAuthenticated]
+    serializer_class = DailyActivitySerializer
+    queryset = DailyActivity.objects.all()
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['user', 'project', 'task', 'status', 'work_date']
+    search_fields = ['title', 'description', 'remarks', 'user__email', 'project__name', 'task__title']
+    ordering_fields = ['created_at', 'work_date', 'planned_hours', 'spending_hours']
+    
+    def get_queryset(self):
+        """Filter daily activities based on user permissions"""
+        user = self.request.user
+        if user.role == 'ADMIN':
+            return DailyActivity.objects.all()
+        elif user.role in ['MANAGER', 'TEAMLEAD']:
+            # Managers and Team Leads can see activities from their department or projects they lead
+            from django.db import models
+            return DailyActivity.objects.filter(
+                models.Q(user=user) | 
+                models.Q(user__department=user.department) |
+                models.Q(project__project_lead=user)
+            ).distinct()
+        else:
+            # Employees can only see their own activities
+            return DailyActivity.objects.filter(user=user)
+    
+    def perform_create(self, serializer):
+        """Set the user field to current user when creating"""
+        serializer.save(user=self.request.user)
+    
+    @action(detail=False, methods=['get'], url_path='my-activities')
+    def my_activities(self, request):
+        """Get all activities for the current user"""
+        activities = DailyActivity.objects.filter(user=request.user)
+        serializer = self.get_serializer(activities, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'], url_path='by-date')
+    def by_date(self, request):
+        """Get activities filtered by date range"""
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        
+        if not start_date or not end_date:
+            return Response(
+                {"error": "Both start_date and end_date are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        activities = self.get_queryset().filter(
+            work_date__gte=start_date,
+            work_date__lte=end_date
+        )
+        serializer = self.get_serializer(activities, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'], url_path='by-project/(?P<project_id>[^/.]+)')
+    def by_project(self, request, project_id=None):
+        """Get all activities for a specific project"""
+        activities = self.get_queryset().filter(project_id=project_id)
+        serializer = self.get_serializer(activities, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'], url_path='by-task/(?P<task_id>[^/.]+)')
+    def by_task(self, request, task_id=None):
+        """Get all activities for a specific task"""
+        activities = self.get_queryset().filter(task_id=task_id)
+        serializer = self.get_serializer(activities, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'], url_path='statistics')
+    def statistics(self, request):
+        """Get statistics about daily activities"""
+        from django.db.models import Sum, Avg, Count
+        
+        activities = self.get_queryset()
+        stats = activities.aggregate(
+            total_activities=Count('id'),
+            total_planned_hours=Sum('planned_hours'),
+            total_spending_hours=Sum('spending_hours'),
+            avg_planned_hours=Avg('planned_hours'),
+            avg_spending_hours=Avg('spending_hours'),
+            pending_count=Count('id', filter=models.Q(status='PENDING')),
+            in_progress_count=Count('id', filter=models.Q(status='IN_PROGRESS')),
+            completed_count=Count('id', filter=models.Q(status='COMPLETED'))
+        )
+        
+        return Response(stats)

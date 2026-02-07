@@ -1,5 +1,6 @@
 from django.contrib import admin
-from .models import User, OTPVerification, Projects, ApprovalRequest, ApprovalResponse, Task, TaskAssignee,QuickNote,Catalog,Pending,Department,SubTask
+from .models import (User, OTPVerification, Projects, ApprovalRequest, ApprovalResponse, 
+                     Task, TaskAssignee, QuickNote, SubTask, Catalog, DailyActivity, Department, Pending)
 
 # Register your models here.
 @admin.register(User)
@@ -78,4 +79,11 @@ class SubTaskAdmin(admin.ModelAdmin):
     list_display = ('title', 'task', 'status', 'due_date', 'completed_at', 'created_at')
     list_filter = ('status', 'created_at')
     search_fields = ('title', 'task__title')
+    readonly_fields = ('created_at',)
+
+@admin.register(DailyActivity)
+class DailyActivityAdmin(admin.ModelAdmin):
+    list_display = ('title', 'user', 'project', 'task', 'work_date', 'status', 'planned_hours', 'spending_hours')
+    list_filter = ('status', 'work_date', 'created_at')
+    search_fields = ('title', 'description', 'user__email', 'project__name', 'task__title')
     readonly_fields = ('created_at',)
