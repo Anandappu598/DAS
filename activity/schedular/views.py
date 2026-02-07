@@ -3,10 +3,14 @@ from rest_framework import generics, status, viewsets, filters
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
-from .serializers import (LoginSerializers, SignupWithOTPSerializer, VerifySignupOTPSerializer,
+from .serializers import (LoginSerializers, PendingSerializer, SignupWithOTPSerializer, VerifySignupOTPSerializer,
                           ForgotPasswordSerializer,ResetPasswordSerializer,ProjectSerializer,ApprovalRequestSerializer,
                           ApprovalResponseSerializer,TaskSerializer,TaskAssigneeSerializer,SubTaskSerializer,QuickNoteSerializer,
-                          CatalogSerializer,DailyActivitySerializer)
+                          CatalogSerializer,PendingSerializer,DailyActivitySerializer)
+from .utils import (create_otp_record, send_password_reset_confirmation, send_password_reset_otp, send_signup_otp_to_admin,send_account_approval_email, verify_otp,
+    send_password_reset_otp, send_password_reset_confirmation, verify_otp)
+from .models import (User,Projects,ApprovalRequest,ApprovalResponse,Task,TaskAssignee,SubTask,QuickNote,Catalog,Pending,
+Catalog,DailyActivity)
 from .utils import (create_otp_record, send_password_reset_confirmation, send_password_reset_otp, 
                     send_signup_otp_to_admin, send_account_approval_email, verify_otp)
 from .models import User,Projects,ApprovalRequest,ApprovalResponse,Task,TaskAssignee,SubTask,QuickNote,Catalog,DailyActivity
@@ -338,6 +342,18 @@ class CatalogViewSet(viewsets.ModelViewSet):
     serializer_class = CatalogSerializer
     queryset = Catalog.objects.all()
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['course', 'routine']
+    search_fields = ['course', 'routine']
+    ordering_fields = ['created_at']
+
+class PendingViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = PendingSerializer
+    queryset = Pending.objects.all()
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['user_id', 'Daily_task_id', 'status']
+    search_fields = ['user_id__email', 'Daily_task_id__title']
+    ordering_fields = ['original_plan_date', 'Replanned_date']
     filterset_fields = ['catalog_type', 'instructors']
     search_fields = ['name', 'description']
     ordering_fields = ['created_at']

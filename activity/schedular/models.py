@@ -21,7 +21,7 @@ class User(AbstractBaseUser):
       ('ADMIN', 'Admin'),
       ('EMPLOYEE', 'Employee'),
       ('MANAGER', 'Manager'),
-      ('TEAMLEAD', 'Team Lead'),
+      ('TEAMLEAD', 'Team Lead')
    )
    email = models.EmailField(max_length=255, unique=True)
    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='EMPLOYEE')
@@ -138,7 +138,7 @@ class ApprovalResponse(models.Model):
     
     ACTION_CHOICES = (
         ('APPROVED', 'Approved'),
-        ('REJECTED', 'Rejected'),
+        ('REJECTED', 'Rejected')
     )
     
     approval_request = models.OneToOneField(ApprovalRequest, on_delete=models.CASCADE, related_name='response')
@@ -253,6 +253,15 @@ class Catalog(models.Model):
     catalog_type = models.CharField(max_length=20,choices=catalog_choices)
     created_at = models.DateTimeField(auto_now_add=True)
     instructors = models.ForeignKey(User,on_delete=models.CASCADE,related_name='instructors',null=True,blank=True)
+
+class Pending(models.Model):
+    user_id = models.ForeignKey(User,on_delete=models.CASCADE,related_name='pending_user')
+    original_plan_date = models.DateField()
+    Daily_task_id = models.ForeignKey('DailyActivity',on_delete=models.CASCADE,related_name='pending_task')
+    Replanned_date = models.DateField()
+    status = models.CharField(max_length=20,default='PENDING')
+
+
 
 class DailyActivity(models.Model):
     status_choices = (
