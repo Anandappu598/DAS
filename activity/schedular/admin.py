@@ -1,5 +1,6 @@
 from django.contrib import admin
-from .models import User, OTPVerification, Projects, ApprovalRequest, ApprovalResponse, Task, TaskAssignee,QuickNote,Course,Routine
+from .models import (User, OTPVerification, Projects, ApprovalRequest, ApprovalResponse, 
+                     Task, TaskAssignee, QuickNote, SubTask, Catalog, DailyActivity, Department)
 
 # Register your models here.
 @admin.register(User)
@@ -54,9 +55,31 @@ class QuickNoteAdmin(admin.ModelAdmin):
     search_fields = ('note_text','user__email')
     readonly_fields = ('created_at',)
 
-@admin.register(Course)
-class CourseAdmin(admin.ModelAdmin):
-    list_display  = ('course_name','description','created_at')
-    list_filter = ('course_name',)
-    search_fields = ('course_name',)
+@admin.register(SubTask)
+class SubTaskAdmin(admin.ModelAdmin):
+    list_display = ('title', 'task', 'status', 'due_date', 'completed_at', 'created_at')
+    list_filter = ('status', 'created_at')
+    search_fields = ('title', 'task__title')
     readonly_fields = ('created_at',)
+
+@admin.register(Catalog)
+class CatalogAdmin(admin.ModelAdmin):
+    list_display = ('name', 'catalog_type', 'instructors', 'created_at')
+    list_filter = ('catalog_type', 'created_at')
+    search_fields = ('name', 'description')
+    readonly_fields = ('created_at',)
+
+@admin.register(DailyActivity)
+class DailyActivityAdmin(admin.ModelAdmin):
+    list_display = ('title', 'user', 'project', 'task', 'work_date', 'status', 'planned_hours', 'spending_hours')
+    list_filter = ('status', 'work_date', 'created_at')
+    search_fields = ('title', 'description', 'user__email', 'project__name', 'task__title')
+    readonly_fields = ('created_at',)
+
+@admin.register(Department)
+class DepartmentAdmin(admin.ModelAdmin):
+    list_display = ('name', 'created_at')
+    list_filter = ('created_at',)
+    search_fields = ('name',)
+    readonly_fields = ('created_at',)
+
