@@ -39,13 +39,6 @@ class Migration(migrations.Migration):
                 ('created_at', models.DateTimeField(auto_now_add=True)),
             ],
         ),
-        migrations.RemoveField(
-            model_name='course',
-            name='instructor',
-        ),
-        migrations.DeleteModel(
-            name='Routine',
-        ),
         migrations.AddField(
             model_name='projects',
             name='is_approved',
@@ -65,8 +58,5 @@ class Migration(migrations.Migration):
             model_name='dailyactivity',
             name='user',
             field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='daily_activities', to=settings.AUTH_USER_MODEL),
-        ),
-        migrations.DeleteModel(
-            name='Course',
         ),
     ]
