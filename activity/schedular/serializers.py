@@ -1,6 +1,7 @@
 from rest_framework import serializers
-from .models import Pending, User, Projects, ApprovalRequest, ApprovalResponse, Task, TaskAssignee,SubTask,QuickNote,Catalog
-from .models import User, Projects, ApprovalRequest, ApprovalResponse, Task, TaskAssignee,SubTask,QuickNote,Catalog,DailyActivity
+from .models import (User, Projects, ApprovalRequest, ApprovalResponse, Task, TaskAssignee,
+                     SubTask, QuickNote, Catalog, TodayPlan, ActivityLog, 
+                     Pending, DaySession)
 from django.contrib.auth import authenticate
 
 
@@ -103,25 +104,56 @@ class QuickNoteSerializer(serializers.ModelSerializer):
         read_only_fields = ('created_at',)
 
 class CatalogSerializer(serializers.ModelSerializer):
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    project_name = serializers.CharField(source='project.name', read_only=True, allow_null=True)
+    task_title = serializers.CharField(source='task.title', read_only=True, allow_null=True)
+    instructor_email = serializers.EmailField(source='instructor.email', read_only=True, allow_null=True)
+    
     class Meta:
         model = Catalog
         fields = '__all__'
-        read_only_fields = ('created_at',)
+        read_only_fields = ('created_at', 'updated_at')
+
+
+class TodayPlanSerializer(serializers.ModelSerializer):
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    catalog_item_details = CatalogSerializer(source='catalog_item', read_only=True)
+    catalog_name = serializers.CharField(source='catalog_item.name', read_only=True)
+    catalog_type = serializers.CharField(source='catalog_item.catalog_type', read_only=True)
+    
+    class Meta:
+        model = TodayPlan
+        fields = '__all__'
+        read_only_fields = ('created_at', 'updated_at')
+
+
+class ActivityLogSerializer(serializers.ModelSerializer):
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    today_plan_details = TodayPlanSerializer(source='today_plan', read_only=True)
+    catalog_name = serializers.CharField(source='today_plan.catalog_item.name', read_only=True)
+    
+    class Meta:
+        model = ActivityLog
+        fields = '__all__'
+        read_only_fields = ('created_at', 'updated_at', 'hours_worked', 'minutes_worked')
+
 
 class PendingSerializer(serializers.ModelSerializer):
-    user_email = serializers.EmailField(source='user_id.email', read_only=True)
-    task_title = serializers.CharField(source='Daily_task_id.title', read_only=True)
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    today_plan_details = TodayPlanSerializer(source='today_plan', read_only=True)
+    catalog_name = serializers.CharField(source='today_plan.catalog_item.name', read_only=True)
     
     class Meta:
         model = Pending
         fields = '__all__'
-class DailyActivitySerializer(serializers.ModelSerializer):
+        read_only_fields = ('created_at', 'updated_at')
+
+
+class DaySessionSerializer(serializers.ModelSerializer):
     user_email = serializers.EmailField(source='user.email', read_only=True)
-    project_name = serializers.CharField(source='project.name', read_only=True)
-    task_title = serializers.CharField(source='task.title', read_only=True)
     
     class Meta:
-        model = DailyActivity
+        model = DaySession
         fields = '__all__'
-        read_only_fields = ('created_at',)
+        read_only_fields = ('created_at', 'updated_at')
 

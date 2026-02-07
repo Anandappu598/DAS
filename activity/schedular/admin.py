@@ -1,6 +1,7 @@
 from django.contrib import admin
 from .models import (User, OTPVerification, Projects, ApprovalRequest, ApprovalResponse, 
-                     Task, TaskAssignee, QuickNote, SubTask, Catalog, DailyActivity, Department, Pending)
+                     Task, TaskAssignee, QuickNote, SubTask, Catalog, Department, 
+                     Pending, TodayPlan, ActivityLog, DaySession)
 
 # Register your models here.
 @admin.register(User)
@@ -57,16 +58,17 @@ class QuickNoteAdmin(admin.ModelAdmin):
 
 @admin.register(Catalog)
 class CatalogAdmin(admin.ModelAdmin):
-    list_display = ('name', 'catalog_type', 'instructors', 'created_at')
-    list_filter = ('catalog_type', 'created_at')
-    search_fields = ('name', 'description')
-    readonly_fields = ('created_at',)
+    list_display = ('name', 'catalog_type', 'user', 'is_active', 'created_at')
+    list_filter = ('catalog_type', 'is_active', 'created_at')
+    search_fields = ('name', 'description', 'user__email')
+    readonly_fields = ('created_at', 'updated_at')
 
 @admin.register(Pending)
 class PendingAdmin(admin.ModelAdmin):
-    list_display = ('user_id', 'original_plan_date', 'Replanned_date', 'status')
-    list_filter = ('status', 'original_plan_date', 'Replanned_date')
-    search_fields = ('user_id__email',)
+    list_display = ('user', 'today_plan', 'original_plan_date', 'replanned_date', 'status', 'minutes_left')
+    list_filter = ('status', 'original_plan_date', 'replanned_date')
+    search_fields = ('user__email', 'today_plan__catalog_item__name', 'reason')
+    readonly_fields = ('created_at', 'updated_at')
 
 @admin.register(Department)
 class DepartmentAdmin(admin.ModelAdmin):
@@ -81,9 +83,26 @@ class SubTaskAdmin(admin.ModelAdmin):
     search_fields = ('title', 'task__title')
     readonly_fields = ('created_at',)
 
-@admin.register(DailyActivity)
-class DailyActivityAdmin(admin.ModelAdmin):
-    list_display = ('title', 'user', 'project', 'task', 'work_date', 'status', 'planned_hours', 'spending_hours')
-    list_filter = ('status', 'work_date', 'created_at')
-    search_fields = ('title', 'description', 'user__email', 'project__name', 'task__title')
-    readonly_fields = ('created_at',)
+@admin.register(TodayPlan)
+class TodayPlanAdmin(admin.ModelAdmin):
+    list_display = ('user', 'catalog_item', 'plan_date', 'scheduled_start_time', 'scheduled_end_time', 'status', 'order_index')
+    list_filter = ('status', 'plan_date', 'created_at')
+    search_fields = ('user__email', 'catalog_item__name', 'notes')
+    readonly_fields = ('created_at', 'updated_at')
+    ordering = ['plan_date', 'order_index']
+
+@admin.register(ActivityLog)
+class ActivityLogAdmin(admin.ModelAdmin):
+    list_display = ('user', 'today_plan', 'status', 'actual_start_time', 'actual_end_time', 'hours_worked', 'is_task_completed')
+    list_filter = ('status', 'is_task_completed', 'actual_start_time')
+    search_fields = ('user__email', 'today_plan__catalog_item__name', 'work_notes')
+    readonly_fields = ('created_at', 'updated_at', 'hours_worked', 'minutes_worked')
+    ordering = ['-actual_start_time']
+
+@admin.register(DaySession)
+class DaySessionAdmin(admin.ModelAdmin):
+    list_display = ('user', 'session_date', 'started_at', 'ended_at', 'is_active')
+    list_filter = ('is_active', 'session_date')
+    search_fields = ('user__email',)
+    readonly_fields = ('created_at', 'updated_at')
+    ordering = ['-session_date']

@@ -18,7 +18,10 @@ router.register(r'quick-notes', views.QuickNoteViewSet, basename='quick-notes')
 router.register(r'catalog', views.CatalogViewSet, basename='catalog')
 router.register(r'pending', views.PendingViewSet, basename='pending')
 
-router.register(r'daily-activities', views.DailyActivityViewSet, basename='daily-activities')
+# Workflow endpoints
+router.register(r'today-plan', views.TodayPlanViewSet, basename='today-plan')
+router.register(r'activity-log', views.ActivityLogViewSet, basename='activity-log')
+router.register(r'day-session', views.DaySessionViewSet, basename='day-session')
 
 urlpatterns = [
     path('', include(router.urls)),
