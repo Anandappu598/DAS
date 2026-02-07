@@ -16,6 +16,7 @@ router.register(r'task-assignees', views.TaskAssigneeViewSet, basename='task-ass
 router.register(r'sub-tasks', views.SubTaskViewSet, basename='sub-tasks')
 router.register(r'quick-notes', views.QuickNoteViewSet, basename='quick-notes')
 router.register(r'catalog', views.CatalogViewSet, basename='catalog')
+router.register(r'daily-activities', views.DailyActivityViewSet, basename='daily-activities')
 
 urlpatterns = [
     path('', include(router.urls)),
