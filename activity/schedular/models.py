@@ -259,6 +259,44 @@ class TeamInstruction(models.Model):
     def __str__(self):
         return f"{self.subject} - {self.project.name} by {self.sent_by.email}"
 
+
+class Notification(models.Model):
+    """Model for user notifications"""
+    
+    NOTIFICATION_TYPES = (
+        ('PROJECT_CREATED', 'Project Created'),
+        ('PROJECT_APPROVED', 'Project Approved'),
+        ('PROJECT_REJECTED', 'Project Rejected'),
+        ('TASK_CREATED', 'Task Created'),
+        ('TASK_ASSIGNED', 'Task Assigned'),
+        ('TASK_COMPLETED', 'Task Completed'),
+        ('TASK_UPDATED', 'Task Updated'),
+        ('APPROVAL_REQUESTED', 'Approval Requested'),
+        ('APPROVAL_APPROVED', 'Approval Approved'),
+        ('APPROVAL_REJECTED', 'Approval Rejected'),
+        ('INSTRUCTION_RECEIVED', 'Instruction Received'),
+        ('SUBTASK_COMPLETED', 'SubTask Completed'),
+    )
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
+    notification_type = models.CharField(max_length=50, choices=NOTIFICATION_TYPES)
+    title = models.CharField(max_length=200)
+    message = models.TextField()
+    reference_type = models.CharField(max_length=20, null=True, blank=True)  # 'project', 'task', etc.
+    reference_id = models.IntegerField(null=True, blank=True)  # ID of related object
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['user', 'is_read']),
+        ]
+    
+    def __str__(self):
+        return f"{self.title} - {self.user.email}"
+
     
 class QuickNote(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='quick_notes')

@@ -7,11 +7,11 @@ from .serializers import (LoginSerializers, SignupWithOTPSerializer, VerifySignu
                           ForgotPasswordSerializer, ResetPasswordSerializer, ProjectSerializer, ApprovalRequestSerializer,
                           ApprovalResponseSerializer, TaskSerializer, TaskAssigneeSerializer, SubTaskSerializer, QuickNoteSerializer,
                           CatalogSerializer, TodayPlanSerializer, ActivityLogSerializer, 
-                          PendingSerializer, DaySessionSerializer, TeamInstructionSerializer, UserSerializer, UserPreferenceSerializer)
+                          PendingSerializer, DaySessionSerializer, TeamInstructionSerializer, UserSerializer, UserPreferenceSerializer, NotificationSerializer)
 from .utils import (create_otp_record, send_password_reset_confirmation, send_password_reset_otp, 
                     send_signup_otp_to_admin, send_account_approval_email, verify_otp)
 from .models import (User, Projects, ApprovalRequest, ApprovalResponse, Task, TaskAssignee, SubTask, QuickNote, 
-                     Catalog, TodayPlan, ActivityLog, Pending, DaySession, TeamInstruction)
+                     Catalog, TodayPlan, ActivityLog, Pending, DaySession, TeamInstruction, Notification)
 from rest_framework import viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -2141,3 +2141,62 @@ class TeamOverviewViewSet(viewsets.GenericViewSet):
             'count': len(dept_stats),
             'departments': dept_stats
         })
+
+
+class NotificationViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing notifications"""
+    permission_classes = [IsAuthenticated]
+    serializer_class = NotificationSerializer
+    queryset = Notification.objects.all()
+    
+    def get_queryset(self):
+        """Filter notifications for current user"""
+        return Notification.objects.filter(user=self.request.user)
+    
+    @action(detail=False, methods=['get'])
+    def unread(self, request):
+        """Get all unread notifications"""
+        unread_notifications = Notification.objects.filter(
+            user=request.user,
+            is_read=False
+        )
+        serializer = self.get_serializer(unread_notifications, many=True)
+        return Response({
+            'count': unread_notifications.count(),
+            'notifications': serializer.data
+        })
+    
+    @action(detail=False, methods=['get'])
+    def unread_count(self, request):
+        """Get count of unread notifications"""
+        count = Notification.objects.filter(
+            user=request.user,
+            is_read=False
+        ).count()
+        return Response({'count': count})
+    
+    @action(detail=True, methods=['post'])
+    def mark_read(self, request, pk=None):
+        """Mark a notification as read"""
+        notification = self.get_object()
+        notification.is_read = True
+        notification.save()
+        return Response({'status': 'notification marked as read'})
+    
+    @action(detail=False, methods=['post'])
+    def mark_all_read(self, request):
+        """Mark all notifications as read"""
+        Notification.objects.filter(
+            user=request.user,
+            is_read=False
+        ).update(is_read=True)
+        return Response({'status': 'all notifications marked as read'})
+    
+    @action(detail=False, methods=['delete'])
+    def delete_read(self, request):
+        """Delete all read notifications"""
+        deleted_count = Notification.objects.filter(
+            user=request.user,
+            is_read=True
+        ).delete()[0]
+        return Response({'status': f'{deleted_count} read notifications deleted'})
