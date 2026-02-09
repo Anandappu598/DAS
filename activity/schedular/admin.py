@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (User, OTPVerification, Projects, ApprovalRequest, ApprovalResponse, 
                      Task, TaskAssignee, QuickNote, SubTask, Catalog, Department, 
-                     Pending, TodayPlan, ActivityLog, DaySession, TeamInstruction)
+                     Pending, TodayPlan, ActivityLog, DaySession, TeamInstruction, Notification)
 
 # Register your models here.
 @admin.register(User)
@@ -60,6 +60,22 @@ class TeamInstructionAdmin(admin.ModelAdmin):
     def get_recipient_count(self, obj):
         return obj.recipients.count()
     get_recipient_count.short_description = 'Recipients'
+
+@admin.register(Notification)
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = ('title', 'user', 'notification_type', 'is_read', 'created_at')
+    list_filter = ('notification_type', 'is_read', 'created_at')
+    search_fields = ('title', 'message', 'user__email')
+    readonly_fields = ('created_at',)
+    list_per_page = 50
+    date_hierarchy = 'created_at'
+    
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        # Admins see all, others see only their notifications
+        if request.user.role != 'ADMIN':
+            return qs.filter(user=request.user)
+        return qs
 
 @admin.register(QuickNote)
 class QuickNoteAdmin(admin.ModelAdmin):
