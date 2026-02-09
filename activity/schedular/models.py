@@ -23,11 +23,19 @@ class User(AbstractBaseUser):
       ('MANAGER', 'Manager'),
       ('TEAMLEAD', 'Team Lead')
    )
+   
+   THEME_CHOICES = (
+      ('light', 'Light Mode'),
+      ('dark', 'Dark Mode'),
+      ('auto', 'Auto/System Default')
+   )
+   
    email = models.EmailField(max_length=255, unique=True)
    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='EMPLOYEE')
    department = models.ForeignKey('Department',on_delete=models.CASCADE,related_name='department',null=True,blank=True)
    is_active = models.BooleanField(default=True)
    phone_number = models.CharField(max_length=15, blank=True, null=True)
+   theme_preference = models.CharField(max_length=10, choices=THEME_CHOICES, default='auto')
 
    objects = UserManager()
 
@@ -281,6 +289,7 @@ class Catalog(models.Model):
     
     # For courses and routines
     estimated_hours = models.DecimalField(max_digits=5, decimal_places=2, default=1.0)
+    progress_percentage = models.IntegerField(default=0, help_text="Progress percentage (0-100)")
     
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -291,6 +300,31 @@ class Catalog(models.Model):
     
     def __str__(self):
         return f"{self.catalog_type}: {self.name}"
+    
+    def calculate_progress(self):
+        """Calculate progress based on linked task or project"""
+        if self.task:
+            if self.task.status == 'DONE':
+                self.progress_percentage = 100
+            elif self.task.status == 'IN_PROGRESS':
+                # Calculate based on subtasks if available
+                subtasks = self.task.subtasks.all()
+                if subtasks.count() > 0:
+                    completed = subtasks.filter(status='DONE').count()
+                    self.progress_percentage = int((completed / subtasks.count()) * 100)
+                else:
+                    self.progress_percentage = 50  # Default for in-progress
+            else:
+                self.progress_percentage = 0
+        elif self.project:
+            tasks = self.project.tasks.all()
+            if tasks.count() > 0:
+                completed = tasks.filter(status='DONE').count()
+                self.progress_percentage = int((completed / tasks.count()) * 100)
+            else:
+                self.progress_percentage = 0
+        self.save()
+        return self.progress_percentage
 
 
 class TodayPlan(models.Model):
@@ -303,6 +337,13 @@ class TodayPlan(models.Model):
         ('MOVED_TO_PENDING', 'Moved to Pending')
     )
     
+    QUADRANT_CHOICES = (
+        ('Q1', 'Q1: Do First (Urgent & Important)'),
+        ('Q2', 'Q2: Schedule (Important, Not Urgent)'),
+        ('Q3', 'Q3: Delegate (Urgent, Not Important)'),
+        ('Q4', 'Q4: Eliminate (Not Urgent, Not Important)'),
+    )
+    
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='today_plans')
     catalog_item = models.ForeignKey(Catalog, on_delete=models.CASCADE, related_name='planned_items')
     
@@ -311,6 +352,7 @@ class TodayPlan(models.Model):
     scheduled_end_time = models.TimeField()
     planned_duration_minutes = models.IntegerField(help_text="Planned duration in minutes")
     
+    quadrant = models.CharField(max_length=2, choices=QUADRANT_CHOICES, default='Q2', help_text="Eisenhower Matrix quadrant")
     order_index = models.IntegerField(default=0, help_text="Order in today's plan")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PLANNED')
     

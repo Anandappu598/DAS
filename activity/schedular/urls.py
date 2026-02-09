@@ -8,6 +8,7 @@ router.register(r'signup', views.SignupViewSet, basename='signup')
 router.register(r'verify-signup', views.VerifySignupViewSet, basename='verify-signup')
 router.register(r'forgot-password', views.ForgotPasswordViewSet, basename='forgot-password')
 router.register(r'reset-password', views.ResetPasswordViewSet, basename='reset-password')
+router.register(r'user-preferences', views.UserPreferencesViewSet, basename='user-preferences')
 router.register(r'projects', views.ProjectViewSet, basename='projects')
 router.register(r'approval-requests', views.ApprovalRequestViewSet, basename='approval-requests')
 router.register(r'approval-responses', views.ApprovalResponseViewSet, basename='approval-responses')
@@ -23,6 +24,12 @@ router.register(r'pending', views.PendingViewSet, basename='pending')
 router.register(r'today-plan', views.TodayPlanViewSet, basename='today-plan')
 router.register(r'activity-log', views.ActivityLogViewSet, basename='activity-log')
 router.register(r'day-session', views.DaySessionViewSet, basename='day-session')
+
+# Dashboard endpoints
+router.register(r'dashboard', views.DashboardViewSet, basename='dashboard')
+
+# Team overview endpoints
+router.register(r'team-overview', views.TeamOverviewViewSet, basename='team-overview')
 
 urlpatterns = [
     path('', include(router.urls)),

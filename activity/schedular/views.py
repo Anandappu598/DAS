@@ -7,7 +7,7 @@ from .serializers import (LoginSerializers, SignupWithOTPSerializer, VerifySignu
                           ForgotPasswordSerializer, ResetPasswordSerializer, ProjectSerializer, ApprovalRequestSerializer,
                           ApprovalResponseSerializer, TaskSerializer, TaskAssigneeSerializer, SubTaskSerializer, QuickNoteSerializer,
                           CatalogSerializer, TodayPlanSerializer, ActivityLogSerializer, 
-                          PendingSerializer, DaySessionSerializer, TeamInstructionSerializer)
+                          PendingSerializer, DaySessionSerializer, TeamInstructionSerializer, UserSerializer, UserPreferenceSerializer)
 from .utils import (create_otp_record, send_password_reset_confirmation, send_password_reset_otp, 
                     send_signup_otp_to_admin, send_account_approval_email, verify_otp)
 from .models import (User, Projects, ApprovalRequest, ApprovalResponse, Task, TaskAssignee, SubTask, QuickNote, 
@@ -35,7 +35,8 @@ class LoginViewSet(viewsets.GenericViewSet):
             "refresh": str(refresh),
             "access": str(refresh.access_token),
             "role": user.role,
-            "email": user.email
+            "email": user.email,
+            "theme_preference": user.theme_preference
         })
     
 
@@ -121,6 +122,40 @@ class ResetPasswordViewSet(viewsets.GenericViewSet):
         send_password_reset_confirmation(user.email)
         return Response({"message": "Password reset successful"})
 
+
+class UserPreferencesViewSet(viewsets.GenericViewSet):
+    """ViewSet for managing user preferences like theme"""
+    permission_classes = [IsAuthenticated]
+    
+    @action(detail=False, methods=['get'])
+    def me(self, request):
+        """Get current user profile and preferences"""
+        user = request.user
+        return Response({
+            'id': user.id,
+            'email': user.email,
+            'role': user.role,
+            'department': user.department.name if user.department else None,
+            'phone_number': user.phone_number or '',
+            'theme_preference': user.theme_preference
+        })
+    
+    @action(detail=False, methods=['patch'])
+    def theme(self, request):
+        """Update theme preference"""
+        serializer = UserPreferenceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        user = request.user
+        user.theme_preference = serializer.validated_data['theme_preference']
+        user.save(update_fields=['theme_preference'])
+        
+        return Response({
+            "message": "Theme preference updated",
+            "theme_preference": user.theme_preference
+        })
+
+
 class ProjectViewSet(viewsets.ModelViewSet):
       permission_classes = [IsAuthenticated]
       serializer_class = ProjectSerializer
@@ -150,6 +185,71 @@ class ProjectViewSet(viewsets.ModelViewSet):
                   requested_by=user,
                   request_data=serializer.data
               )
+      
+      @action(detail=True, methods=['post'])
+      def request_completion(self, request, pk=None):
+          """Request approval for project completion"""
+          project = self.get_object()
+          user = request.user
+          
+          # Check if user has permission to request completion
+          if user.role not in ['ADMIN', 'MANAGER', 'TEAMLEAD'] and user != project.created_by:
+              return Response(
+                  {"error": "You don't have permission to request completion for this project"},
+                  status=status.HTTP_403_FORBIDDEN
+              )
+          
+          # Check if project is already completed
+          if project.status == 'COMPLETED':
+              return Response(
+                  {"error": "Project is already completed"},
+                  status=status.HTTP_400_BAD_REQUEST
+              )
+          
+          # Check if there's already a pending completion request
+          existing_request = ApprovalRequest.objects.filter(
+              reference_type='PROJECT',
+              reference_id=project.id,
+              approval_type='COMPLETION',
+              status='PENDING'
+          ).first()
+          
+          if existing_request:
+              return Response(
+                  {"error": "There is already a pending completion request for this project"},
+                  status=status.HTTP_400_BAD_REQUEST
+              )
+          
+          # Set completed date
+          completion_date = request.data.get('completed_date', timezone.now().date())
+          project.completed_date = completion_date
+          project.save()
+          
+          # If user is ADMIN, approve immediately
+          if user.role == 'ADMIN':
+              project.status = 'COMPLETED'
+              project.save()
+              return Response({
+                  "message": "Project marked as completed (auto-approved for admin)",
+                  "project": ProjectSerializer(project).data
+              })
+          
+          # Otherwise, create approval request
+          approval_request = ApprovalRequest.objects.create(
+              reference_type='PROJECT',
+              reference_id=project.id,
+              approval_type='COMPLETION',
+              requested_by=user,
+              request_data={
+                  'project_name': project.name,
+                  'completed_date': str(completion_date)
+              }
+          )
+          
+          return Response({
+              "message": "Project completion request submitted for approval",
+              "approval_request_id": approval_request.id
+          }, status=status.HTTP_201_CREATED)
 
 
 class ApprovalRequestViewSet(viewsets.ModelViewSet):
@@ -173,6 +273,217 @@ class ApprovalRequestViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         """Set the requested_by field to current user"""
         serializer.save(requested_by=self.request.user)
+    
+    @action(detail=False, methods=['get'])
+    def new_projects(self, request):
+        """Get pending approval requests for new projects"""
+        approvals = ApprovalRequest.objects.filter(
+            reference_type='PROJECT',
+            approval_type='CREATION',
+            status='PENDING'
+        ).select_related('requested_by').order_by('-created_at')
+        
+        # Only admins can see all pending requests
+        if request.user.role != 'ADMIN':
+            approvals = approvals.filter(requested_by=request.user)
+        
+        # Get detailed project information
+        items = []
+        for approval in approvals:
+            try:
+                project = Projects.objects.get(id=approval.reference_id)
+                items.append({
+                    'approval_id': approval.id,
+                    'project_id': project.id,
+                    'project_name': project.name,
+                    'description': project.description,
+                    'status': project.status,
+                    'start_date': project.start_date,
+                    'due_date': project.due_date,
+                    'duration': project.duration,
+                    'working_hours': project.working_hours,
+                    'project_lead': project.project_lead.email if project.project_lead else None,
+                    'handled_by': project.handled_by.email,
+                    'requested_by': approval.requested_by.email,
+                    'requested_at': approval.created_at,
+                    'request_data': approval.request_data
+                })
+            except Projects.DoesNotExist:
+                pass
+        
+        return Response({
+            'count': len(items),
+            'requests': items
+        })
+    
+    @action(detail=False, methods=['get'])
+    def project_closures(self, request):
+        """Get pending approval requests for project completions"""
+        approvals = ApprovalRequest.objects.filter(
+            reference_type='PROJECT',
+            approval_type='COMPLETION',
+            status='PENDING'
+        ).select_related('requested_by').order_by('-created_at')
+        
+        if request.user.role != 'ADMIN':
+            approvals = approvals.filter(requested_by=request.user)
+        
+        items = []
+        for approval in approvals:
+            try:
+                project = Projects.objects.get(id=approval.reference_id)
+                items.append({
+                    'approval_id': approval.id,
+                    'project_id': project.id,
+                    'project_name': project.name,
+                    'description': project.description,
+                    'current_status': project.status,
+                    'start_date': project.start_date,
+                    'due_date': project.due_date,
+                    'completion_request_date': project.completed_date,
+                    'project_lead': project.project_lead.email if project.project_lead else None,
+                    'handled_by': project.handled_by.email,
+                    'requested_by': approval.requested_by.email,
+                    'requested_at': approval.created_at,
+                    'request_data': approval.request_data
+                })
+            except Projects.DoesNotExist:
+                pass
+        
+        return Response({
+            'count': len(items),
+            'requests': items
+        })
+    
+    @action(detail=False, methods=['get'])
+    def new_tasks(self, request):
+        """Get pending approval requests for new tasks"""
+        approvals = ApprovalRequest.objects.filter(
+            reference_type='TASK',
+            approval_type='CREATION',
+            status='PENDING'
+        ).select_related('requested_by').order_by('-created_at')
+        
+        if request.user.role != 'ADMIN':
+            approvals = approvals.filter(requested_by=request.user)
+        
+        items = []
+        for approval in approvals:
+            try:
+                task = Task.objects.get(id=approval.reference_id)
+                items.append({
+                    'approval_id': approval.id,
+                    'task_id': task.id,
+                    'task_title': task.title,
+                    'project': task.project.name,
+                    'project_id': task.project.id,
+                    'priority': task.priority,
+                    'status': task.status,
+                    'start_date': task.start_date,
+                    'due_date': task.due_date,
+                    'requested_by': approval.requested_by.email,
+                    'requested_at': approval.created_at,
+                    'assignees': [
+                        {'email': assignee.user.email, 'role': assignee.role}
+                        for assignee in task.assignees.all()
+                    ],
+                    'request_data': approval.request_data
+                })
+            except Task.DoesNotExist:
+                pass
+        
+        return Response({
+            'count': len(items),
+            'requests': items
+        })
+    
+    @action(detail=False, methods=['get'])
+    def task_completions(self, request):
+        """Get pending approval requests for task completions"""
+        approvals = ApprovalRequest.objects.filter(
+            reference_type='TASK',
+            approval_type='COMPLETION',
+            status='PENDING'
+        ).select_related('requested_by').order_by('-created_at')
+        
+        if request.user.role != 'ADMIN':
+            approvals = approvals.filter(requested_by=request.user)
+        
+        items = []
+        for approval in approvals:
+            try:
+                task = Task.objects.get(id=approval.reference_id)
+                items.append({
+                    'approval_id': approval.id,
+                    'task_id': task.id,
+                    'task_title': task.title,
+                    'project': task.project.name,
+                    'project_id': task.project.id,
+                    'priority': task.priority,
+                    'current_status': task.status,
+                    'start_date': task.start_date,
+                    'due_date': task.due_date,
+                    'completion_request_date': task.completed_at,
+                    'requested_by': approval.requested_by.email,
+                    'requested_at': approval.created_at,
+                    'assignees': [
+                        {'email': assignee.user.email, 'role': assignee.role}
+                        for assignee in task.assignees.all()
+                    ],
+                    'request_data': approval.request_data
+                })
+            except Task.DoesNotExist:
+                pass
+        
+        return Response({
+            'count': len(items),
+            'requests': items
+        })
+    
+    @action(detail=False, methods=['get'])
+    def my_pending_requests(self, request):
+        """Get all pending requests made by the current user"""
+        approvals = ApprovalRequest.objects.filter(
+            requested_by=request.user,
+            status='PENDING'
+        ).order_by('-created_at')
+        
+        serializer = self.get_serializer(approvals, many=True)
+        return Response({
+            'count': approvals.count(),
+            'requests': serializer.data
+        })
+    
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        """Get summary count of pending approvals by category"""
+        base_query = ApprovalRequest.objects.filter(status='PENDING')
+        
+        # Only admins see all pending; others see only their own
+        if request.user.role != 'ADMIN':
+            base_query = base_query.filter(requested_by=request.user)
+        
+        summary = {
+            'new_projects': base_query.filter(
+                reference_type='PROJECT',
+                approval_type='CREATION'
+            ).count(),
+            'project_closures': base_query.filter(
+                reference_type='PROJECT',
+                approval_type='COMPLETION'
+            ).count(),
+            'new_tasks': base_query.filter(
+                reference_type='TASK',
+                approval_type='CREATION'
+            ).count(),
+            'task_completions': base_query.filter(
+                reference_type='TASK',
+                approval_type='COMPLETION'
+            ).count(),
+            'total_pending': base_query.count()
+        }
+        
+        return Response(summary)
 
 
 class ApprovalResponseViewSet(viewsets.ModelViewSet):
@@ -230,18 +541,52 @@ class ApprovalResponseViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         response = serializer.save(reviewed_by=request.user)
         
-        # Update related project if needed
+        # Update related project/task based on approval type and action
         action = response.action
+        
         if approval_request.reference_type == 'PROJECT':
             try:
                 project = Projects.objects.get(id=approval_request.reference_id)
-                if action == 'APPROVED':
-                    project.is_approved = True
-                    project.save()
-                elif action == 'REJECTED' and approval_request.approval_type == 'CREATION':
-                    # Optionally delete rejected project creations
-                    project.delete()
+                
+                if approval_request.approval_type == 'CREATION':
+                    if action == 'APPROVED':
+                        project.is_approved = True
+                        project.save()
+                    elif action == 'REJECTED':
+                        # Delete rejected project creations
+                        project.delete()
+                        
+                elif approval_request.approval_type == 'COMPLETION':
+                    if action == 'APPROVED':
+                        project.status = 'COMPLETED'
+                        project.completed_date = timezone.now().date()
+                        project.save()
+                    # If rejected, project stays in current status
+                    
             except Projects.DoesNotExist:
+                pass
+        
+        elif approval_request.reference_type == 'TASK':
+            try:
+                task = Task.objects.get(id=approval_request.reference_id)
+                
+                if approval_request.approval_type == 'CREATION':
+                    if action == 'APPROVED':
+                        # Task is already created, just mark it as approved if needed
+                        # Could add an is_approved field to Task model if needed
+                        pass
+                    elif action == 'REJECTED':
+                        # Delete rejected task creations
+                        task.delete()
+                        
+                elif approval_request.approval_type == 'COMPLETION':
+                    if action == 'APPROVED':
+                        task.status = 'DONE'
+                        task.completed_at = timezone.now().date()
+                        task.save()
+                    # If rejected, task stays in current status
+                    
+            except Task.DoesNotExist:
                 pass
         
         return Response({
@@ -271,6 +616,94 @@ class TaskViewSet(viewsets.ModelViewSet):
                 models.Q(assignees__user=user) | 
                 models.Q(project__created_by=user)
             ).distinct()
+    
+    def perform_create(self, serializer):
+        """Override create to add approval logic for tasks"""
+        user = self.request.user
+        task = serializer.save()
+        
+        # If ADMIN or TEAMLEAD, auto-approve the task
+        if user.role in ['ADMIN', 'TEAMLEAD']:
+            # Task is auto-approved, no approval request needed
+            pass
+        else:
+            # For EMPLOYEE and MANAGER, require approval
+            ApprovalRequest.objects.create(
+                reference_type='TASK',
+                reference_id=task.id,
+                approval_type='CREATION',
+                requested_by=user,
+                request_data=serializer.data
+            )
+    
+    @action(detail=True, methods=['post'])
+    def request_completion(self, request, pk=None):
+        """Request approval for task completion"""
+        task = self.get_object()
+        user = request.user
+        
+        # Check if user has permission to request completion
+        is_assigned = TaskAssignee.objects.filter(task=task, user=user).exists()
+        is_project_owner = task.project.created_by == user
+        
+        if user.role not in ['ADMIN', 'MANAGER', 'TEAMLEAD'] and not is_assigned and not is_project_owner:
+            return Response(
+                {"error": "You don't have permission to request completion for this task"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Check if task is already completed
+        if task.status == 'DONE':
+            return Response(
+                {"error": "Task is already completed"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if there's already a pending completion request
+        existing_request = ApprovalRequest.objects.filter(
+            reference_type='TASK',
+            reference_id=task.id,
+            approval_type='COMPLETION',
+            status='PENDING'
+        ).first()
+        
+        if existing_request:
+            return Response(
+                {"error": "There is already a pending completion request for this task"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Set completed date
+        completion_date = request.data.get('completed_date', timezone.now().date())
+        task.completed_at = completion_date
+        task.save()
+        
+        # If user is ADMIN, approve immediately
+        if user.role == 'ADMIN':
+            task.status = 'DONE'
+            task.save()
+            return Response({
+                "message": "Task marked as completed (auto-approved for admin)",
+                "task": TaskSerializer(task).data
+            })
+        
+        # Otherwise, create approval request
+        approval_request = ApprovalRequest.objects.create(
+            reference_type='TASK',
+            reference_id=task.id,
+            approval_type='COMPLETION',
+            requested_by=user,
+            request_data={
+                'task_title': task.title,
+                'project': task.project.name,
+                'completed_date': str(completion_date)
+            }
+        )
+        
+        return Response({
+            "message": "Task completion request submitted for approval",
+            "approval_request_id": approval_request.id
+        }, status=status.HTTP_201_CREATED)
 
 
 class TaskAssigneeViewSet(viewsets.ModelViewSet):
@@ -430,6 +863,62 @@ class CatalogViewSet(viewsets.ModelViewSet):
         catalog = self.get_queryset().filter(catalog_type=catalog_type.upper())
         serializer = self.get_serializer(catalog, many=True)
         return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def update_progress(self, request, pk=None):
+        """Update progress percentage for a catalog item"""
+        catalog = self.get_object()
+        
+        # If linked to task/project, calculate automatically
+        if catalog.task or catalog.project:
+            progress = catalog.calculate_progress()
+            return Response({
+                "message": "Progress calculated automatically",
+                "progress_percentage": progress
+            })
+        
+        # For manual items (courses, routines, custom), allow manual update
+        progress = request.data.get('progress_percentage')
+        if progress is None:
+            return Response(
+                {"error": "progress_percentage is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            progress = int(progress)
+            if not 0 <= progress <= 100:
+                raise ValueError()
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "progress_percentage must be an integer between 0 and 100"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        catalog.progress_percentage = progress
+        catalog.save()
+        
+        return Response({
+            "message": "Progress updated successfully",
+            "progress_percentage": catalog.progress_percentage
+        })
+    
+    @action(detail=False, methods=['post'])
+    def refresh_all_progress(self, request):
+        """Refresh progress for all catalog items linked to tasks/projects"""
+        catalogs = Catalog.objects.filter(user=request.user).filter(
+            models.Q(task__isnull=False) | models.Q(project__isnull=False)
+        )
+        
+        updated_count = 0
+        for catalog in catalogs:
+            catalog.calculate_progress()
+            updated_count += 1
+        
+        return Response({
+            "message": f"Progress refreshed for {updated_count} catalog items",
+            "count": updated_count
+        })
 
 
 # ===== WORKFLOW VIEWSETS =====
@@ -548,6 +1037,192 @@ class TodayPlanViewSet(viewsets.ModelViewSet):
             "message": "Activity started successfully",
             "activity_log": ActivityLogSerializer(activity_log).data
         }, status=status.HTTP_201_CREATED)
+    
+    @action(detail=False, methods=['get'])
+    def by_quadrant(self, request):
+        """Get today's plan grouped by Eisenhower Matrix quadrant"""
+        today = timezone.now().date()
+        plan_date = request.query_params.get('date', today)
+        
+        plans = TodayPlan.objects.filter(
+            user=request.user, 
+            plan_date=plan_date
+        ).select_related('catalog_item').order_by('quadrant', 'order_index')
+        
+        # Group by quadrant
+        quadrants = {
+            'Q1': [],
+            'Q2': [],
+            'Q3': [],
+            'Q4': []
+        }
+        
+        total_minutes = 0
+        
+        for plan in plans:
+            serialized = TodayPlanSerializer(plan).data
+            quadrants[plan.quadrant].append(serialized)
+            total_minutes += plan.planned_duration_minutes
+        
+        total_hours = total_minutes // 60
+        remaining_minutes = total_minutes % 60
+        
+        return Response({
+            'date': plan_date,
+            'total_duration': f"{total_hours}h {remaining_minutes}m",
+            'total_minutes': total_minutes,
+            'quadrants': {
+                'Q1': {
+                    'label': 'DO FIRST (URGENT & IMPORTANT)',
+                    'items': quadrants['Q1']
+                },
+                'Q2': {
+                    'label': 'SCHEDULE (IMPORTANT, NOT URGENT)',
+                    'items': quadrants['Q2']
+                },
+                'Q3': {
+                    'label': 'DELEGATE (URGENT, NOT IMPORTANT)',
+                    'items': quadrants['Q3']
+                },
+                'Q4': {
+                    'label': 'ELIMINATE (NOT URGENT, NOT IMPORTANT)',
+                    'items': quadrants['Q4']
+                }
+            }
+        })
+    
+    @action(detail=False, methods=['get'])
+    def week_view(self, request):
+        """Get week view of plans"""
+        from datetime import timedelta
+        
+        # Get start of week (Monday)
+        today = timezone.now().date()
+        start_of_week = today - timedelta(days=today.weekday())
+        end_of_week = start_of_week + timedelta(days=6)
+        
+        plans = TodayPlan.objects.filter(
+            user=request.user,
+            plan_date__gte=start_of_week,
+            plan_date__lte=end_of_week
+        ).select_related('catalog_item').order_by('plan_date', 'order_index')
+        
+        # Group by date
+        week_data = {}
+        for i in range(7):
+            date = start_of_week + timedelta(days=i)
+            week_data[str(date)] = {
+                'date': date,
+                'day_name': date.strftime('%A'),
+                'items': [],
+                'total_minutes': 0
+            }
+        
+        for plan in plans:
+            date_key = str(plan.plan_date)
+            if date_key in week_data:
+                week_data[date_key]['items'].append(TodayPlanSerializer(plan).data)
+                week_data[date_key]['total_minutes'] += plan.planned_duration_minutes
+        
+        # Convert to list and add formatted time
+        week_list = []
+        for date_str, data in week_data.items():
+            hours = data['total_minutes'] // 60
+            minutes = data['total_minutes'] % 60
+            data['total_duration'] = f"{hours}h {minutes}m"
+            week_list.append(data)
+        
+        return Response({
+            'week_start': start_of_week,
+            'week_end': end_of_week,
+            'days': week_list
+        })
+    
+    @action(detail=False, methods=['get'])
+    def month_view(self, request):
+        """Get month view of plans"""
+        from datetime import timedelta
+        from calendar import monthrange
+        
+        today = timezone.now().date()
+        year = int(request.query_params.get('year', today.year))
+        month = int(request.query_params.get('month', today.month))
+        
+        # Get first and last day of month
+        first_day = datetime(year, month, 1).date()
+        last_day_num = monthrange(year, month)[1]
+        last_day = datetime(year, month, last_day_num).date()
+        
+        plans = TodayPlan.objects.filter(
+            user=request.user,
+            plan_date__gte=first_day,
+            plan_date__lte=last_day
+        ).select_related('catalog_item').order_by('plan_date', 'order_index')
+        
+        # Group by date
+        month_data = {}
+        for day_num in range(1, last_day_num + 1):
+            date = datetime(year, month, day_num).date()
+            month_data[str(date)] = {
+                'date': date,
+                'day': day_num,
+                'items': [],
+                'total_minutes': 0
+            }
+        
+        for plan in plans:
+            date_key = str(plan.plan_date)
+            if date_key in month_data:
+                month_data[date_key]['items'].append(TodayPlanSerializer(plan).data)
+                month_data[date_key]['total_minutes'] += plan.planned_duration_minutes
+        
+        # Convert to list
+        month_list = []
+        for date_str, data in month_data.items():
+            hours = data['total_minutes'] // 60
+            minutes = data['total_minutes'] % 60
+            data['total_duration'] = f"{hours}h {minutes}m"
+            month_list.append(data)
+        
+        return Response({
+            'year': year,
+            'month': month,
+            'month_name': first_day.strftime('%B'),
+            'days': month_list
+        })
+    
+    @action(detail=False, methods=['post'])
+    def update_quadrant(self, request):
+        """Update quadrant for a plan item (drag and drop between quadrants)"""
+        plan_id = request.data.get('plan_id')
+        new_quadrant = request.data.get('quadrant')
+        
+        if not plan_id or not new_quadrant:
+            return Response(
+                {"error": "plan_id and quadrant are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if new_quadrant not in ['Q1', 'Q2', 'Q3', 'Q4']:
+            return Response(
+                {"error": "Invalid quadrant. Must be Q1, Q2, Q3, or Q4"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            plan = TodayPlan.objects.get(id=plan_id, user=request.user)
+            plan.quadrant = new_quadrant
+            plan.save()
+            
+            return Response({
+                "message": "Quadrant updated successfully",
+                "plan": TodayPlanSerializer(plan).data
+            })
+        except TodayPlan.DoesNotExist:
+            return Response(
+                {"error": "Plan not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
     
     @action(detail=False, methods=['post'])
     def reorder(self, request):
@@ -891,4 +1566,578 @@ class TeamInstructionViewSet(viewsets.ModelViewSet):
             "project_id": project.id,
             "project_name": project.name,
             "members": members_data
+        })
+
+
+class DashboardViewSet(viewsets.GenericViewSet):
+    """ViewSet for admin dashboard APIs"""
+    permission_classes = [IsAuthenticated]
+    
+    @action(detail=False, methods=['get'])
+    def statistics(self, request):
+        """Get dashboard statistics for cards"""
+        user = request.user
+        
+        # PROJECT PORTFOLIO
+        if user.role == 'ADMIN':
+            projects = Projects.objects.all()
+        else:
+            projects = Projects.objects.filter(
+                models.Q(created_by=user) | 
+                models.Q(project_lead=user) | 
+                models.Q(handled_by=user)
+            ).distinct()
+        
+        project_stats = {
+            'total': projects.count(),
+            'active': projects.filter(status='ACTIVE').count(),
+            'done': projects.filter(status='COMPLETED').count()
+        }
+        
+        # TIMELINE HEALTH
+        today = timezone.now().date()
+        timeline_stats = {
+            'total': projects.count(),
+            'on_track': projects.filter(due_date__gte=today, status='ACTIVE').count(),
+            'overdue': projects.filter(due_date__lt=today, status__in=['ACTIVE', 'ON HOLD']).count()
+        }
+        
+        # TASK EFFICIENCY
+        if user.role == 'ADMIN':
+            tasks = Task.objects.all()
+        else:
+            tasks = Task.objects.filter(
+                models.Q(assignees__user=user) | 
+                models.Q(project__created_by=user)
+            ).distinct()
+        
+        task_stats = {
+            'total': tasks.count(),
+            'completed': tasks.filter(status='DONE').count(),
+            'pending': tasks.filter(status='PENDING').count()
+        }
+        
+        # CRITICAL ATTENTION
+        critical_tasks = tasks.filter(priority='CRITICAL').count()
+        rejected_approvals = ApprovalRequest.objects.filter(status='REJECTED').count()
+        
+        critical_stats = {
+            'total': critical_tasks + rejected_approvals,
+            'critical': critical_tasks,
+            'rejected': rejected_approvals
+        }
+        
+        return Response({
+            'project_portfolio': project_stats,
+            'timeline_health': timeline_stats,
+            'task_efficiency': task_stats,
+            'critical_attention': critical_stats
+        })
+    
+    @action(detail=False, methods=['get'])
+    def critical_attention(self, request):
+        """Get critical attention items - overdue tasks"""
+        user = request.user
+        today = timezone.now().date()
+        
+        # Get overdue tasks
+        if user.role == 'ADMIN':
+            tasks = Task.objects.filter(
+                due_date__lt=today,
+                status__in=['PENDING', 'IN_PROGRESS']
+            ).select_related('project').prefetch_related('assignees__user')
+        else:
+            tasks = Task.objects.filter(
+                due_date__lt=today,
+                status__in=['PENDING', 'IN_PROGRESS']
+            ).filter(
+                models.Q(assignees__user=user) | 
+                models.Q(project__created_by=user)
+            ).distinct().select_related('project').prefetch_related('assignees__user')
+        
+        critical_items = []
+        for task in tasks:
+            days_overdue = (today - task.due_date).days
+            assignees = [
+                {'email': assignee.user.email, 'role': assignee.role}
+                for assignee in task.assignees.all()
+            ]
+            
+            critical_items.append({
+                'id': task.id,
+                'title': task.title,
+                'project': task.project.name,
+                'assignees': assignees,
+                'due_date': task.due_date,
+                'days_overdue': days_overdue,
+                'priority': task.priority,
+                'status': task.status
+            })
+        
+        # Sort by days overdue (descending)
+        critical_items.sort(key=lambda x: x['days_overdue'], reverse=True)
+        
+        return Response({
+            'count': len(critical_items),
+            'items': critical_items
+        })
+    
+    @action(detail=False, methods=['get'])
+    def team_activity_status(self, request):
+        """Get team activity status - daily capacity tracking"""
+        user = request.user
+        today = timezone.now().date()
+        daily_capacity_hours = 9  # Target: 9 hours per day
+        
+        # Get all users in the team
+        if user.role == 'ADMIN':
+            users = User.objects.filter(is_active=True)
+        elif user.role in ['MANAGER', 'TEAMLEAD']:
+            users = User.objects.filter(department=user.department, is_active=True)
+        else:
+            users = User.objects.filter(id=user.id)
+        
+        # Calculate hours worked today for each user
+        filled_users = 0
+        not_filled_users = 0
+        user_details = []
+        
+        for u in users:
+            hours_today = ActivityLog.objects.filter(
+                user=u,
+                actual_start_time__date=today
+            ).aggregate(total=Sum('hours_worked'))['total'] or 0
+            
+            is_filled = hours_today >= daily_capacity_hours
+            
+            if is_filled:
+                filled_users += 1
+            else:
+                not_filled_users += 1
+            
+            user_details.append({
+                'email': u.email,
+                'role': u.role,
+                'hours_worked': float(hours_today),
+                'is_filled': is_filled,
+                'percentage': min(100, round((float(hours_today) / daily_capacity_hours) * 100, 2))
+            })
+        
+        return Response({
+            'daily_capacity_target': daily_capacity_hours,
+            'total_users': users.count(),
+            'filled': filled_users,
+            'not_filled': not_filled_users,
+            'filled_percentage': round((filled_users / users.count() * 100), 2) if users.count() > 0 else 0,
+            'not_filled_percentage': round((not_filled_users / users.count() * 100), 2) if users.count() > 0 else 0,
+            'users': user_details
+        })
+    
+    @action(detail=False, methods=['get'])
+    def project_work_stats(self, request):
+        """Get project work stats - workload by user"""
+        user = request.user
+        target_user_id = request.query_params.get('user_id', user.id)
+        
+        try:
+            target_user = User.objects.get(id=target_user_id)
+        except User.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Get tasks assigned to the user
+        task_assignees = TaskAssignee.objects.filter(
+            user=target_user
+        ).select_related('task', 'task__project')
+        
+        if task_assignees.count() == 0:
+            return Response({
+                'user': {
+                    'email': target_user.email,
+                    'role': target_user.role
+                },
+                'total_percentage': 100,
+                'message': 'No tasks assigned to this user.',
+                'tasks': []
+            })
+        
+        # Group by project and calculate hours
+        task_data = []
+        total_hours = 0
+        
+        for assignee in task_assignees:
+            task = assignee.task
+            project = task.project
+            
+            # Get hours worked on this task
+            hours = ActivityLog.objects.filter(
+                user=target_user,
+                today_plan__catalog_item__task=task
+            ).aggregate(total=Sum('hours_worked'))['total'] or 0
+            
+            # If no hours logged yet, use estimated hours from project
+            if hours == 0:
+                hours = project.working_hours / max(task_assignees.filter(task__project=project).count(), 1)
+            
+            task_data.append({
+                'name': task.title,
+                'project': project.name,
+                'hours': float(hours),
+                'status': task.status,
+                'priority': task.priority
+            })
+            
+            total_hours += float(hours)
+        
+        # Calculate percentages
+        for task in task_data:
+            task['percentage'] = round((task['hours'] / total_hours * 100), 2) if total_hours > 0 else 0
+        
+        return Response({
+            'user': {
+                'email': target_user.email,
+                'role': target_user.role
+            },
+            'total_hours': round(total_hours, 2),
+            'total_percentage': 100,
+            'tasks': task_data
+        })
+    
+    @action(detail=False, methods=['get'])
+    def todays_focus(self, request):
+        """Get today's focus items for the user"""
+        user = request.user
+        today = timezone.now().date()
+        
+        # Get today's plan items
+        focus_items = TodayPlan.objects.filter(
+            user=user,
+            plan_date=today
+        ).select_related('catalog_item').order_by('order_index')
+        
+        items = []
+        for plan in focus_items:
+            items.append({
+                'id': plan.id,
+                'name': plan.catalog_item.name,
+                'type': plan.catalog_item.catalog_type,
+                'scheduled_start': plan.scheduled_start_time,
+                'scheduled_end': plan.scheduled_end_time,
+                'duration_minutes': plan.planned_duration_minutes,
+                'status': plan.status,
+                'order': plan.order_index
+            })
+        
+        return Response({
+            'date': today,
+            'count': len(items),
+            'items': items
+        })
+
+
+class TeamOverviewViewSet(viewsets.GenericViewSet):
+    """ViewSet for team overview and monitoring"""
+    permission_classes = [IsAuthenticated]
+    
+    @action(detail=False, methods=['get'])
+    def team_members(self, request):
+        """Get all team members with their statistics"""
+        user = request.user
+        today = timezone.now().date()
+        
+        # Get team members based on role
+        if user.role == 'ADMIN':
+            team_members = User.objects.filter(is_active=True).exclude(id=user.id)
+        elif user.role in ['MANAGER', 'TEAMLEAD']:
+            team_members = User.objects.filter(
+                department=user.department,
+                is_active=True
+            ).exclude(id=user.id)
+        else:
+            # Regular employees can only see themselves
+            team_members = User.objects.filter(id=user.id)
+        
+        members_data = []
+        
+        for member in team_members:
+            # Get task statistics
+            assigned_tasks = TaskAssignee.objects.filter(user=member)
+            active_tasks = assigned_tasks.filter(
+                task__status__in=['PENDING', 'IN_PROGRESS']
+            ).count()
+            completed_tasks = assigned_tasks.filter(
+                task__status='DONE'
+            ).count()
+            
+            # Calculate workload intensity (based on today's plan)
+            todays_plan = TodayPlan.objects.filter(
+                user=member,
+                plan_date=today
+            )
+            total_planned_minutes = todays_plan.aggregate(
+                total=Sum('planned_duration_minutes')
+            )['total'] or 0
+            
+            # Workload intensity: percentage of 8-hour workday (480 minutes)
+            workload_intensity = min(100, int((total_planned_minutes / 480) * 100))
+            
+            # Calculate current focus (hours logged today / daily target)
+            daily_target_hours = 9
+            hours_logged_today = ActivityLog.objects.filter(
+                user=member,
+                actual_start_time__date=today
+            ).aggregate(total=Sum('hours_worked'))['total'] or 0
+            
+            current_focus = min(100, int((float(hours_logged_today) / daily_target_hours) * 100))
+            
+            # Get department name
+            department_name = member.department.name if member.department else "Unassigned"
+            
+            members_data.append({
+                'id': member.id,
+                'email': member.email,
+                'name': member.email.split('@')[0].replace('.', ' ').title(),  # Simple name extraction
+                'role': member.role,
+                'department': department_name,
+                'active_tasks': active_tasks,
+                'completed_tasks': completed_tasks,
+                'workload_intensity': workload_intensity,
+                'current_focus': current_focus,
+                'phone_number': member.phone_number or ''
+            })
+        
+        return Response({
+            'count': len(members_data),
+            'members': members_data
+        })
+    
+    @action(detail=False, methods=['get'])
+    def member_dashboard(self, request):
+        """Get detailed dashboard for a specific team member"""
+        member_id = request.query_params.get('member_id')
+        
+        if not member_id:
+            return Response(
+                {"error": "member_id query parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        user = request.user
+        
+        # Check permissions
+        try:
+            member = User.objects.get(id=member_id)
+        except User.DoesNotExist:
+            return Response(
+                {"error": "Member not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Verify access rights
+        if user.role not in ['ADMIN', 'MANAGER', 'TEAMLEAD']:
+            if member.id != user.id:
+                return Response(
+                    {"error": "You don't have permission to view this member's dashboard"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        elif user.role in ['MANAGER', 'TEAMLEAD']:
+            if member.department != user.department:
+                return Response(
+                    {"error": "You can only view members from your department"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        
+        today = timezone.now().date()
+        
+        # Member basic info
+        member_info = {
+            'id': member.id,
+            'email': member.email,
+            'name': member.email.split('@')[0].replace('.', ' ').title(),
+            'role': member.role,
+            'department': member.department.name if member.department else "Unassigned",
+            'phone_number': member.phone_number or ''
+        }
+        
+        # Task statistics
+        assigned_tasks = TaskAssignee.objects.filter(user=member).select_related('task', 'task__project')
+        
+        active_tasks_details = []
+        for assignee in assigned_tasks.filter(task__status__in=['PENDING', 'IN_PROGRESS']):
+            active_tasks_details.append({
+                'id': assignee.task.id,
+                'title': assignee.task.title,
+                'project': assignee.task.project.name,
+                'priority': assignee.task.priority,
+                'status': assignee.task.status,
+                'due_date': assignee.task.due_date,
+                'role': assignee.role
+            })
+        
+        completed_tasks_details = []
+        for assignee in assigned_tasks.filter(task__status='DONE'):
+            completed_tasks_details.append({
+                'id': assignee.task.id,
+                'title': assignee.task.title,
+                'project': assignee.task.project.name,
+                'priority': assignee.task.priority,
+                'completed_at': assignee.task.completed_at,
+                'role': assignee.role
+            })
+        
+        # Today's plan
+        todays_plan = TodayPlan.objects.filter(
+            user=member,
+            plan_date=today
+        ).select_related('catalog_item').order_by('order_index')
+        
+        plan_items = []
+        total_planned_minutes = 0
+        for plan in todays_plan:
+            plan_items.append({
+                'id': plan.id,
+                'name': plan.catalog_item.name,
+                'type': plan.catalog_item.catalog_type,
+                'quadrant': plan.quadrant,
+                'scheduled_start': plan.scheduled_start_time,
+                'scheduled_end': plan.scheduled_end_time,
+                'duration_minutes': plan.planned_duration_minutes,
+                'status': plan.status
+            })
+            total_planned_minutes += plan.planned_duration_minutes
+        
+        # Activity logs for today
+        activity_logs = ActivityLog.objects.filter(
+            user=member,
+            actual_start_time__date=today
+        ).select_related('today_plan__catalog_item')
+        
+        activity_summary = []
+        total_hours_logged = 0
+        for log in activity_logs:
+            activity_summary.append({
+                'id': log.id,
+                'task_name': log.today_plan.catalog_item.name,
+                'start_time': log.actual_start_time,
+                'end_time': log.actual_end_time,
+                'hours_worked': float(log.hours_worked),
+                'status': log.status,
+                'is_completed': log.is_task_completed
+            })
+            total_hours_logged += float(log.hours_worked)
+        
+        # Calculate metrics
+        workload_intensity = min(100, int((total_planned_minutes / 480) * 100))
+        current_focus = min(100, int((total_hours_logged / 9) * 100))
+        
+        # Pending tasks
+        pending_tasks = Pending.objects.filter(
+            user=member,
+            status='PENDING'
+        ).select_related('today_plan__catalog_item')
+        
+        pending_items = []
+        for pending in pending_tasks:
+            pending_items.append({
+                'id': pending.id,
+                'task_name': pending.today_plan.catalog_item.name,
+                'original_date': pending.original_plan_date,
+                'replanned_date': pending.replanned_date,
+                'reason': pending.reason,
+                'minutes_left': pending.minutes_left
+            })
+        
+        return Response({
+            'member': member_info,
+            'statistics': {
+                'active_tasks': len(active_tasks_details),
+                'completed_tasks': len(completed_tasks_details),
+                'workload_intensity': workload_intensity,
+                'current_focus': current_focus,
+                'total_hours_logged_today': round(total_hours_logged, 2),
+                'pending_tasks': len(pending_items)
+            },
+            'active_tasks': active_tasks_details,
+            'completed_tasks': completed_tasks_details,
+            'todays_plan': plan_items,
+            'activity_logs': activity_summary,
+            'pending_tasks': pending_items
+        })
+    
+    @action(detail=False, methods=['get'])
+    def department_stats(self, request):
+        """Get statistics by department"""
+        user = request.user
+        
+        if user.role not in ['ADMIN', 'MANAGER', 'TEAMLEAD']:
+            return Response(
+                {"error": "Only admins, managers, and team leads can view department statistics"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get all departments or just user's department
+        if user.role == 'ADMIN':
+            from .models import Department
+            departments = Department.objects.all()
+        else:
+            from .models import Department
+            departments = Department.objects.filter(id=user.department_id)
+        
+        dept_stats = []
+        
+        for dept in departments:
+            members = User.objects.filter(department=dept, is_active=True)
+            member_count = members.count()
+            
+            if member_count == 0:
+                continue
+            
+            # Calculate aggregate statistics
+            total_active_tasks = 0
+            total_completed_tasks = 0
+            total_workload = 0
+            total_focus = 0
+            
+            today = timezone.now().date()
+            
+            for member in members:
+                # Active tasks
+                active = TaskAssignee.objects.filter(
+                    user=member,
+                    task__status__in=['PENDING', 'IN_PROGRESS']
+                ).count()
+                total_active_tasks += active
+                
+                # Completed tasks
+                completed = TaskAssignee.objects.filter(
+                    user=member,
+                    task__status='DONE'
+                ).count()
+                total_completed_tasks += completed
+                
+                # Workload
+                planned_minutes = TodayPlan.objects.filter(
+                    user=member,
+                    plan_date=today
+                ).aggregate(total=Sum('planned_duration_minutes'))['total'] or 0
+                total_workload += min(100, int((planned_minutes / 480) * 100))
+                
+                # Focus
+                hours_logged = ActivityLog.objects.filter(
+                    user=member,
+                    actual_start_time__date=today
+                ).aggregate(total=Sum('hours_worked'))['total'] or 0
+                total_focus += min(100, int((float(hours_logged) / 9) * 100))
+            
+            dept_stats.append({
+                'department': dept.name,
+                'member_count': member_count,
+                'total_active_tasks': total_active_tasks,
+                'total_completed_tasks': total_completed_tasks,
+                'avg_workload_intensity': round(total_workload / member_count, 2) if member_count > 0 else 0,
+                'avg_current_focus': round(total_focus / member_count, 2) if member_count > 0 else 0
+            })
+        
+        return Response({
+            'count': len(dept_stats),
+            'departments': dept_stats
         })

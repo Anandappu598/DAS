@@ -5,6 +5,24 @@ from .models import (User, Projects, ApprovalRequest, ApprovalResponse, Task, Ta
 from django.contrib.auth import authenticate
 
 
+class UserSerializer(serializers.ModelSerializer):
+    """Serializer for User model"""
+    department_name = serializers.CharField(source='department.name', read_only=True, allow_null=True)
+    
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'role', 'department', 'department_name', 'is_active', 'phone_number', 'theme_preference']
+        read_only_fields = ['id']
+
+
+class UserPreferenceSerializer(serializers.Serializer):
+    """Serializer for updating user preferences"""
+    theme_preference = serializers.ChoiceField(
+        choices=['light', 'dark', 'auto'],
+        required=True
+    )
+
+
 class SignupWithOTPSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
