@@ -233,6 +233,24 @@ class SubTask(models.Model):
     
     def __str__(self):
         return f"{self.title} - {self.task.title}"
+
+
+class TeamInstruction(models.Model):
+    """Model for sending instructions to team members on a project"""
+    
+    project = models.ForeignKey(Projects, on_delete=models.CASCADE, related_name='team_instructions')
+    recipients = models.ManyToManyField(User, related_name='received_instructions')
+    subject = models.CharField(max_length=200)
+    instructions = models.TextField()
+    sent_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sent_instructions')
+    sent_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-sent_at']
+    
+    def __str__(self):
+        return f"{self.subject} - {self.project.name} by {self.sent_by.email}"
+
     
 class QuickNote(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='quick_notes')
