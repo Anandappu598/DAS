@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import (User, Projects, ApprovalRequest, ApprovalResponse, Task, TaskAssignee,
                      SubTask, QuickNote, Catalog, TodayPlan, ActivityLog, 
-                     Pending, DaySession)
+                     Pending, DaySession, TeamInstruction)
 from django.contrib.auth import authenticate
 
 
@@ -157,3 +157,20 @@ class DaySessionSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('created_at', 'updated_at')
 
+
+class TeamInstructionSerializer(serializers.ModelSerializer):
+    sent_by_email = serializers.EmailField(source='sent_by.email', read_only=True)
+    project_name = serializers.CharField(source='project.name', read_only=True)
+    recipient_emails = serializers.SerializerMethodField()
+    recipient_count = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = TeamInstruction
+        fields = '__all__'
+        read_only_fields = ('sent_by', 'sent_at')
+    
+    def get_recipient_emails(self, obj):
+        return [user.email for user in obj.recipients.all()]
+    
+    def get_recipient_count(self, obj):
+        return obj.recipients.count()

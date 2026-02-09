@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (User, OTPVerification, Projects, ApprovalRequest, ApprovalResponse, 
                      Task, TaskAssignee, QuickNote, SubTask, Catalog, Department, 
-                     Pending, TodayPlan, ActivityLog, DaySession)
+                     Pending, TodayPlan, ActivityLog, DaySession, TeamInstruction)
 
 # Register your models here.
 @admin.register(User)
@@ -48,6 +48,18 @@ class TaskAssigneeAdmin(admin.ModelAdmin):
     list_filter = ('role', 'assigned_at')
     search_fields = ('task__title', 'user__email')
     readonly_fields = ('assigned_at',)
+
+@admin.register(TeamInstruction)
+class TeamInstructionAdmin(admin.ModelAdmin):
+    list_display = ('subject', 'project', 'sent_by', 'sent_at', 'get_recipient_count')
+    list_filter = ('project', 'sent_at', 'sent_by')
+    search_fields = ('subject', 'instructions', 'project__name', 'sent_by__email')
+    filter_horizontal = ('recipients',)
+    readonly_fields = ('sent_at',)
+    
+    def get_recipient_count(self, obj):
+        return obj.recipients.count()
+    get_recipient_count.short_description = 'Recipients'
 
 @admin.register(QuickNote)
 class QuickNoteAdmin(admin.ModelAdmin):
