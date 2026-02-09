@@ -373,7 +373,7 @@ class PendingViewSet(viewsets.ModelViewSet):
         pending_task = self.get_object()
         new_date = request.data.get('replanned_date')
         
-        if not new_date:
+        if not new_date: 
             return Response(
                 {"error": "replanned_date is required"},
                 status=status.HTTP_400_BAD_REQUEST
