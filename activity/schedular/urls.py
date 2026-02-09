@@ -14,6 +14,7 @@ router.register(r'approval-responses', views.ApprovalResponseViewSet, basename='
 router.register(r'tasks', views.TaskViewSet, basename='tasks')
 router.register(r'task-assignees', views.TaskAssigneeViewSet, basename='task-assignees')
 router.register(r'sub-tasks', views.SubTaskViewSet, basename='sub-tasks')
+router.register(r'team-instructions', views.TeamInstructionViewSet, basename='team-instructions')
 router.register(r'quick-notes', views.QuickNoteViewSet, basename='quick-notes')
 router.register(r'catalog', views.CatalogViewSet, basename='catalog')
 router.register(r'pending', views.PendingViewSet, basename='pending')

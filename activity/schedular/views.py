@@ -7,11 +7,11 @@ from .serializers import (LoginSerializers, SignupWithOTPSerializer, VerifySignu
                           ForgotPasswordSerializer, ResetPasswordSerializer, ProjectSerializer, ApprovalRequestSerializer,
                           ApprovalResponseSerializer, TaskSerializer, TaskAssigneeSerializer, SubTaskSerializer, QuickNoteSerializer,
                           CatalogSerializer, TodayPlanSerializer, ActivityLogSerializer, 
-                          PendingSerializer, DaySessionSerializer)
+                          PendingSerializer, DaySessionSerializer, TeamInstructionSerializer)
 from .utils import (create_otp_record, send_password_reset_confirmation, send_password_reset_otp, 
                     send_signup_otp_to_admin, send_account_approval_email, verify_otp)
 from .models import (User, Projects, ApprovalRequest, ApprovalResponse, Task, TaskAssignee, SubTask, QuickNote, 
-                     Catalog, TodayPlan, ActivityLog, Pending, DaySession)
+                     Catalog, TodayPlan, ActivityLog, Pending, DaySession, TeamInstruction)
 from rest_framework import viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -828,3 +828,67 @@ class DaySessionViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(session)
         return Response(serializer.data)
+
+class TeamInstructionViewSet(viewsets.ModelViewSet):
+    """ViewSet for sending team instructions"""
+    permission_classes = [IsAuthenticated]
+    serializer_class = TeamInstructionSerializer
+    queryset = TeamInstruction.objects.all()
+    
+    def get_queryset(self):
+        """Filter instructions based on user permissions"""
+        user = self.request.user
+        if user.role == 'ADMIN':
+            return TeamInstruction.objects.all()
+        else:
+            # Users can see instructions they sent or received
+            return TeamInstruction.objects.filter(
+                models.Q(sent_by=user) | models.Q(recipients=user)
+            ).distinct()
+    
+    def perform_create(self, serializer):
+        """Set sent_by to current user"""
+        serializer.save(sent_by=self.request.user)
+    
+    @action(detail=False, methods=['get'])
+    def project_members(self, request):
+        """Get list of members for a specific project"""
+        project_id = request.query_params.get('project_id')
+        
+        if not project_id:
+            return Response(
+                {"error": "project_id query parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            project = Projects.objects.get(id=project_id)
+        except Projects.DoesNotExist:
+            return Response(
+                {"error": "Project not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get all users assigned to tasks in this project
+        from django.db.models import Q
+        project_members = User.objects.filter(
+            Q(assigned_tasks__task__project=project) |
+            Q(created_projects=project) |
+            Q(id=project.project_lead_id) |
+            Q(id=project.handled_by_id)
+        ).distinct()
+        
+        members_data = [
+            {
+                "id": user.id,
+                "email": user.email,
+                "role": user.role
+            }
+            for user in project_members
+        ]
+        
+        return Response({
+            "project_id": project.id,
+            "project_name": project.name,
+            "members": members_data
+        })
