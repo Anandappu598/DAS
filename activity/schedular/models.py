@@ -243,42 +243,160 @@ class QuickNote(models.Model):
         return f'Note by {self.user.email} at {self.created_at.strftime("%Y-%m-%d %H:%M:%S")}'
 
 class Catalog(models.Model):
-    catalog_choices = (
-        ('COURSE', 'course'),
-        ('ROUTINE','routine'),
-        ('WORK','work')
+    """Master catalog containing all work items (Projects, Tasks, Courses, Routines)"""
+    CATALOG_TYPE_CHOICES = (
+        ('PROJECT', 'Project'),
+        ('TASK', 'Task'),
+        ('COURSE', 'Course'),
+        ('ROUTINE', 'Routine'),
+        ('CUSTOM', 'Custom Work')
     )
-    name = models.CharField(max_length=100)
-    description = models.TextField()
-    catalog_type = models.CharField(max_length=20,choices=catalog_choices)
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='catalog_items', null=True, blank=True)
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True, null=True)
+    catalog_type = models.CharField(max_length=20, choices=CATALOG_TYPE_CHOICES)
+    
+    # References to existing models (optional)
+    project = models.ForeignKey(Projects, on_delete=models.CASCADE, null=True, blank=True, related_name='catalog_items')
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, null=True, blank=True, related_name='catalog_items')
+    
+    # For courses and routines
+    estimated_hours = models.DecimalField(max_digits=5, decimal_places=2, default=1.0)
+    
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    instructors = models.ForeignKey(User,on_delete=models.CASCADE,related_name='instructors',null=True,blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.catalog_type}: {self.name}"
+
+
+class TodayPlan(models.Model):
+    """Daily plan - items dragged from catalog with scheduled times"""
+    STATUS_CHOICES = (
+        ('PLANNED', 'Planned'),
+        ('STARTED', 'Started'),
+        ('IN_ACTIVITY', 'In Activity Log'),
+        ('COMPLETED', 'Completed'),
+        ('MOVED_TO_PENDING', 'Moved to Pending')
+    )
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='today_plans')
+    catalog_item = models.ForeignKey(Catalog, on_delete=models.CASCADE, related_name='planned_items')
+    
+    plan_date = models.DateField()
+    scheduled_start_time = models.TimeField()
+    scheduled_end_time = models.TimeField()
+    planned_duration_minutes = models.IntegerField(help_text="Planned duration in minutes")
+    
+    order_index = models.IntegerField(default=0, help_text="Order in today's plan")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PLANNED')
+    
+    notes = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['plan_date', 'order_index']
+        unique_together = ['user', 'plan_date', 'order_index']
+    
+    def __str__(self):
+        return f"{self.user.email} - {self.catalog_item.name} on {self.plan_date}"
+
+
+class ActivityLog(models.Model):
+    """Tracks actual work time when user clicks arrow on today's plan item"""
+    STATUS_CHOICES = (
+        ('IN_PROGRESS', 'In Progress'),
+        ('STOPPED', 'Stopped'),
+        ('COMPLETED', 'Completed')
+    )
+    
+    today_plan = models.ForeignKey(TodayPlan, on_delete=models.CASCADE, related_name='activity_logs')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='activity_logs')
+    
+    actual_start_time = models.DateTimeField(auto_now_add=True)
+    actual_end_time = models.DateTimeField(null=True, blank=True)
+    
+    # Calculated fields
+    hours_worked = models.DecimalField(max_digits=5, decimal_places=2, default=0, help_text="Hours worked")
+    minutes_worked = models.IntegerField(default=0, help_text="Total minutes worked")
+    
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='IN_PROGRESS')
+    
+    # Progress tracking
+    work_notes = models.TextField(blank=True, null=True, help_text="Notes about the work done")
+    is_task_completed = models.BooleanField(default=False)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.user.email} - {self.today_plan.catalog_item.name} - {self.status}"
+    
+    def calculate_time_worked(self):
+        """Calculate time worked when stopped"""
+        if self.actual_end_time:
+            delta = self.actual_end_time - self.actual_start_time
+            self.minutes_worked = int(delta.total_seconds() / 60)
+            self.hours_worked = round(self.minutes_worked / 60, 2)
+            self.save()
+
 
 class Pending(models.Model):
-    user_id = models.ForeignKey(User,on_delete=models.CASCADE,related_name='pending_user')
-    original_plan_date = models.DateField()
-    Daily_task_id = models.ForeignKey('DailyActivity',on_delete=models.CASCADE,related_name='pending_task')
-    Replanned_date = models.DateField()
-    status = models.CharField(max_length=20,default='PENDING')
-
-
-
-class DailyActivity(models.Model):
-    status_choices = (
+    """Tasks moved to pending when stopped but not completed"""
+    STATUS_CHOICES = (
         ('PENDING', 'Pending'),
-        ('IN_PROGRESS', 'In Progress'),
-        ('COMPLETED', 'Completed'),
+        ('REPLANNED', 'Replanned'),
+        ('CANCELLED', 'Cancelled')
     )
-    user = models.ForeignKey(User,on_delete=models.CASCADE,related_name='daily_activities')
-    project = models.ForeignKey(Projects,on_delete=models.CASCADE,related_name='project_activities')
-    task = models.ForeignKey(Task,on_delete = models.CASCADE,related_name= 'task_activities')
-    title = models.CharField(max_length=150)
-    work_date = models.DateField()
-    planned_hours = models.IntegerField()
-    spending_hours = models.IntegerField()
-    started_working_hours = models.TimeField()
-    ending_working_hours = models.TimeField()
-    status = models.CharField(max_length=20,choices=status_choices,default='PENDING')   
-    description = models.TextField()
-    remarks = models.TextField(null=True,blank=True)
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='pending_tasks')
+    today_plan = models.ForeignKey(TodayPlan, on_delete=models.CASCADE, related_name='pending_items')
+    activity_log = models.ForeignKey(ActivityLog, on_delete=models.SET_NULL, null=True, blank=True, related_name='pending_items')
+    
+    original_plan_date = models.DateField()
+    replanned_date = models.DateField(null=True, blank=True)
+    
+    minutes_left = models.IntegerField(default=0, help_text="Estimated minutes left to complete")
+    reason = models.TextField(blank=True, null=True, help_text="Reason for not completing")
+    
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.user.email} - {self.today_plan.catalog_item.name} - {self.status}"
+
+
+
+class DaySession(models.Model):
+    """Tracks when user starts/ends their work day"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='day_sessions')
+    session_date = models.DateField()
+    
+    started_at = models.DateTimeField(null=True, blank=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    
+    is_active = models.BooleanField(default=False)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-session_date']
+        unique_together = ['user', 'session_date']
+    
+    def __str__(self):
+        return f"{self.user.email} - {self.session_date} - {'Active' if self.is_active else 'Ended'}"
