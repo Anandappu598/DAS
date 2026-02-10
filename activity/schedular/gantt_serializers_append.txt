@@ -1,0 +1,81 @@
+
+
+class GanttAssigneeSerializer(serializers.ModelSerializer):
+    """Serializer for assignees in Gantt chart view"""
+    id = serializers.IntegerField(source='user.id', read_only=True)
+    name = serializers.SerializerMethodField()
+    email = serializers.EmailField(source='user.email', read_only=True)
+    role = serializers.CharField(read_only=True)
+    profile_picture = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = TaskAssignee
+        fields = ['id', 'name', 'email', 'role', 'profile_picture']
+    
+    def get_name(self, obj):
+        """Get full name or email if name not available"""
+        return obj.user.email.split('@')[0].replace('.', ' ').title()
+    
+    def get_profile_picture(self, obj):
+        """Get profile picture URL if exists"""
+        return None
+
+
+class GanttTaskSerializer(serializers.ModelSerializer):
+    """Serializer for tasks in Gantt chart view"""
+    assignees = serializers.SerializerMethodField()
+    is_overdue = serializers.SerializerMethodField()
+    duration_days = serializers.SerializerMethodField()
+    overdue_days = serializers.SerializerMethodField()
+    progress = serializers.SerializerMethodField()
+    bar_color = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Task
+        fields = [
+            'id', 'title', 'start_date', 'due_date', 'status', 
+            'priority', 'assignees', 'is_overdue', 'duration_days',
+            'overdue_days', 'progress', 'bar_color', 'completed_at'
+        ]
+    
+    def get_assignees(self, obj):
+        """Get all assignees for the task"""
+        assignees = TaskAssignee.objects.filter(task=obj)
+        return GanttAssigneeSerializer(assignees, many=True).data
+    
+    def get_is_overdue(self, obj):
+        """Check if task is overdue"""
+        from django.utils import timezone
+        if obj.status == 'DONE':
+            return False
+        return obj.due_date < timezone.now().date()
+    
+    def get_duration_days(self, obj):
+        """Calculate task duration in days"""
+        if obj.start_date:
+            return (obj.due_date - obj.start_date).days
+        return 0
+    
+    def get_overdue_days(self, obj):
+        """Calculate how many days overdue (if applicable)"""
+        from django.utils import timezone
+        if obj.status == 'DONE' or obj.due_date >= timezone.now().date():
+            return 0
+        return (timezone.now().date() - obj.due_date).days
+    
+    def get_progress(self, obj):
+        """Get task progress percentage"""
+        return obj.calculate_progress()
+    
+    def get_bar_color(self, obj):
+        """Determine bar color based on status and deadline"""
+        from django.utils import timezone
+        
+        if obj.status == 'DONE':
+            return 'green'
+        elif obj.due_date < timezone.now().date():
+            return 'red'
+        elif obj.status == 'IN_PROGRESS':
+            return 'blue'
+        else:
+            return 'gray'

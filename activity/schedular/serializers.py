@@ -88,6 +88,7 @@ class ApprovalResponseSerializer(serializers.ModelSerializer):
 class TaskSerializer(serializers.ModelSerializer):
     project_name = serializers.CharField(source='project.name', read_only=True)
     assignees_list = serializers.SerializerMethodField()
+    progress = serializers.SerializerMethodField()
     
     class Meta:
         model = Task
@@ -97,6 +98,9 @@ class TaskSerializer(serializers.ModelSerializer):
     def get_assignees_list(self, obj):
         assignees = TaskAssignee.objects.filter(task=obj)
         return TaskAssigneeSerializer(assignees, many=True).data
+    
+    def get_progress(self, obj):
+        return obj.calculate_progress()
 
 class TaskAssigneeSerializer(serializers.ModelSerializer):
     user_email = serializers.EmailField(source='user.email', read_only=True)
@@ -109,11 +113,57 @@ class TaskAssigneeSerializer(serializers.ModelSerializer):
 
 class SubTaskSerializer(serializers.ModelSerializer):
     task_title = serializers.CharField(source='task.title', read_only=True)
+    is_completed = serializers.SerializerMethodField()
     
     class Meta:
         model = SubTask
         fields = '__all__'
         read_only_fields = ('created_at',)
+    
+    def get_is_completed(self, obj):
+        return obj.status == 'DONE'
+
+
+class TaskDetailSerializer(serializers.ModelSerializer):
+    """Detailed task serializer with subtasks for project detail view"""
+    project_name = serializers.CharField(source='project.name', read_only=True)
+    assignees_list = serializers.SerializerMethodField()
+    progress = serializers.SerializerMethodField()
+    subtasks = SubTaskSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = Task
+        fields = '__all__'
+        read_only_fields = ('created_at',)
+    
+    def get_assignees_list(self, obj):
+        assignees = TaskAssignee.objects.filter(task=obj)
+        return TaskAssigneeSerializer(assignees, many=True).data
+    
+    def get_progress(self, obj):
+        return obj.calculate_progress()
+
+
+class ProjectDetailSerializer(serializers.ModelSerializer):
+    """Detailed project serializer with tasks and subtasks"""
+    tasks = TaskDetailSerializer(many=True, read_only=True)
+    created_by_email = serializers.EmailField(source='created_by.email', read_only=True)
+    handled_by_email = serializers.EmailField(source='handled_by.email', read_only=True)
+    project_lead_email = serializers.EmailField(source='project_lead.email', read_only=True)
+    overall_progress = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Projects
+        fields = '__all__'
+    
+    def get_overall_progress(self, obj):
+        """Calculate overall project progress based on all tasks"""
+        tasks = obj.tasks.all()
+        if not tasks.exists():
+            return 0
+        
+        total_progress = sum(task.calculate_progress() for task in tasks)
+        return round(total_progress / tasks.count())
 
 class QuickNoteSerializer(serializers.ModelSerializer):
     class Meta:
@@ -222,3 +272,112 @@ class NotificationSerializer(serializers.ModelSerializer):
             return f"{days} day{'s' if days > 1 else ''} ago"
         else:
             return obj.created_at.strftime('%b %d, %Y')
+
+class GanttAssigneeSerializer(serializers.ModelSerializer):
+    """Serializer for assignees in Gantt chart view"""
+    id = serializers.IntegerField(source='user.id', read_only=True)
+    name = serializers.SerializerMethodField()
+    email = serializers.EmailField(source='user.email', read_only=True)
+    role = serializers.CharField(read_only=True)
+    profile_picture = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = TaskAssignee
+        fields = ['id', 'name', 'email', 'role', 'profile_picture']
+    
+    def get_name(self, obj):
+        """Get full name or email if name not available"""
+        return obj.user.email.split('@')[0].replace('.', ' ').title()
+    
+    def get_profile_picture(self, obj):
+        """Get profile picture URL if exists"""
+        return None
+
+
+class GanttTaskSerializer(serializers.ModelSerializer):
+    """Serializer for tasks in Gantt chart view"""
+    assignees = serializers.SerializerMethodField()
+    is_overdue = serializers.SerializerMethodField()
+    duration_days = serializers.SerializerMethodField()
+    overdue_days = serializers.SerializerMethodField()
+    progress = serializers.SerializerMethodField()
+    bar_color = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Task
+        fields = [
+            'id', 'title', 'start_date', 'due_date', 'status', 
+            'priority', 'assignees', 'is_overdue', 'duration_days',
+            'overdue_days', 'progress', 'bar_color', 'completed_at'
+        ]
+    
+    def get_assignees(self, obj):
+        """Get all assignees for the task"""
+        assignees = TaskAssignee.objects.filter(task=obj)
+        return GanttAssigneeSerializer(assignees, many=True).data
+    
+    def get_is_overdue(self, obj):
+        """Check if task is overdue"""
+        from django.utils import timezone
+        if obj.status == 'DONE':
+            return False
+        return obj.due_date < timezone.now().date()
+    
+    def get_duration_days(self, obj):
+        """Calculate task duration in days"""
+        if obj.start_date:
+            return (obj.due_date - obj.start_date).days
+        return 0
+    
+    def get_overdue_days(self, obj):
+        """Calculate how many days overdue (if applicable)"""
+        from django.utils import timezone
+        if obj.status == 'DONE' or obj.due_date >= timezone.now().date():
+            return 0
+        return (timezone.now().date() - obj.due_date).days
+    
+    def get_progress(self, obj):
+        """Get task progress percentage"""
+        return obj.calculate_progress()
+    
+    def get_bar_color(self, obj):
+        """Determine bar color based on status and deadline"""
+        from django.utils import timezone
+        
+        if obj.status == 'DONE':
+            return 'green'
+        elif obj.due_date < timezone.now().date():
+            return 'red'
+        elif obj.status == 'IN_PROGRESS':
+            return 'blue'
+        else:
+            return 'gray'
+
+
+class GridViewTaskSerializer(serializers.ModelSerializer):
+    """Serializer for tasks in the project grid view"""
+    assignees = GanttAssigneeSerializer(many=True, source='taskassignee_set')
+    progress = serializers.SerializerMethodField()
+    status_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Task
+        fields = [
+            'id', 'title', 'assignees', 'start_date', 'due_date', 
+            'progress', 'status', 'status_display'
+        ]
+
+    def get_progress(self, obj):
+        return obj.calculate_progress()
+
+    def get_status_display(self, obj):
+        from django.utils import timezone
+        if obj.status == 'DONE':
+            return f"Completed on {obj.completed_at.strftime('%b %d')}"
+        
+        now = timezone.now().date()
+        if obj.due_date < now:
+            overdue_days = (now - obj.due_date).days
+            return f"Delayed ({overdue_days}d)"
+        
+        return obj.get_status_display()

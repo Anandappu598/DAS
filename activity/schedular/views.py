@@ -136,9 +136,32 @@ class UserPreferencesViewSet(viewsets.GenericViewSet):
             'email': user.email,
             'role': user.role,
             'department': user.department.name if user.department else None,
+            'department_id': user.department.id if user.department else None,
             'phone_number': user.phone_number or '',
             'theme_preference': user.theme_preference
         })
+    
+    @action(detail=True, methods=['get'], url_path='profile')
+    def user_profile(self, request, pk=None):
+        """Get specific user profile by ID"""
+        try:
+            user = User.objects.get(pk=pk)
+            return Response({
+                'id': user.id,
+                'name': user.email.split('@')[0].replace('.', ' ').title(),
+                'email': user.email,
+                'role': user.role,
+                'role_display': user.get_role_display(),
+                'department': user.department.name if user.department else None,
+                'department_id': user.department.id if user.department else None,
+                'phone_number': user.phone_number or '',
+                'is_active': user.is_active
+            })
+        except User.DoesNotExist:
+            return Response(
+                {"error": "User not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
     
     @action(detail=False, methods=['patch'])
     def theme(self, request):
@@ -185,6 +208,51 @@ class ProjectViewSet(viewsets.ModelViewSet):
                   requested_by=user,
                   request_data=serializer.data
               )
+      
+      @action(detail=True, methods=['get'], url_path='detail-view')
+      def detail_view(self, request, pk=None):
+          """Get detailed project information with tasks and subtasks"""
+          from .serializers import ProjectDetailSerializer
+          project = self.get_object()
+          serializer = ProjectDetailSerializer(project)
+          return Response(serializer.data)
+      
+      @action(detail=True, methods=['get'], url_path='gantt-view')
+      def gantt_view(self, request, pk=None):
+          """Get Gantt chart data for project tasks with timeline and assignees"""
+          from .serializers import GanttTaskSerializer
+          project = self.get_object()
+          
+          # Get all tasks for the project ordered by start_date
+          tasks = project.tasks.all().order_by('start_date', 'due_date')
+          
+          # Serialize tasks with Gantt chart specific data
+          serializer = GanttTaskSerializer(tasks, many=True)
+          
+          # Get project date range for timeline context
+          task_dates = tasks.values_list('start_date', 'due_date')
+          start_dates = [d[0] for d in task_dates if d[0]]
+          due_dates = [d[1] for d in task_dates if d[1]]
+          
+          timeline_start = min(start_dates) if start_dates else None
+          timeline_end = max(due_dates) if due_dates else None
+          
+          return Response({
+              'project_id': project.id,
+              'project_name': project.name,
+              'timeline_start': timeline_start,
+              'timeline_end': timeline_end,
+              'tasks': serializer.data
+          })
+      
+      @action(detail=True, methods=['get'], url_path='grid-view')
+      def grid_view(self, request, pk=None):
+          """Get task data for the project grid view"""
+          from .serializers import GridViewTaskSerializer
+          project = self.get_object()
+          tasks = project.tasks.all().order_by('created_at')
+          serializer = GridViewTaskSerializer(tasks, many=True)
+          return Response(serializer.data)
       
       @action(detail=True, methods=['post'])
       def request_completion(self, request, pk=None):

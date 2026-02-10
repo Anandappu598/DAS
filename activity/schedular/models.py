@@ -197,6 +197,23 @@ class Task(models.Model):
     
     def __str__(self):
         return f"{self.title} - {self.project.name}"
+    
+    def calculate_progress(self):
+        """Calculate task progress based on completed subtasks and their weights"""
+        subtasks = self.subtasks.all()
+        if not subtasks.exists():
+            return 0
+        
+        total_weight = sum(subtask.progress_weight for subtask in subtasks)
+        if total_weight == 0:
+            return 0
+        
+        completed_weight = sum(
+            subtask.progress_weight for subtask in subtasks 
+            if subtask.status == 'DONE'
+        )
+        
+        return round((completed_weight / total_weight) * 100)
 
 
 class TaskAssignee(models.Model):
@@ -232,6 +249,7 @@ class SubTask(models.Model):
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='subtasks')
     title = models.CharField(max_length=150)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    progress_weight = models.IntegerField(default=25, help_text='Weight of this subtask in percentage (e.g., 25 for 25%)')
     due_date = models.DateField()
     completed_at = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
