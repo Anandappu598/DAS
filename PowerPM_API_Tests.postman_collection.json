@@ -1,0 +1,178 @@
+{
+	"info": {
+		"_postman_id": "a8c1b2d3-e4f5-4a6b-8c9d-0e1f2a3b4c5d",
+		"name": "PowerPM API Tests",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Login and Get Token",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"var jsonData = JSON.parse(responseBody);",
+							"pm.collectionVariables.set(\"accessToken\", jsonData.access);"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"email\": \"admin@example.com\",\n    \"password\": \"adminpassword\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/login/",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"login",
+						""
+					]
+				},
+				"description": "Login with your admin credentials to retrieve an access token. The token is automatically saved to a collection variable named `accessToken`."
+			},
+			"response": []
+		},
+		{
+			"name": "2. Project Detail View",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{accessToken}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/projects/1/detail-view/",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"projects",
+						"1",
+						"detail-view",
+						""
+					]
+				},
+				"description": "Fetches the detailed view for a specific project, including tasks and subtasks. **Remember to change the project ID `1` in the URL** to a valid ID from your database."
+			},
+			"response": []
+		},
+		{
+			"name": "3. Project Gantt View",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{accessToken}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/projects/1/gantt-view/",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"projects",
+						"1",
+						"gantt-view",
+						""
+					]
+				},
+				"description": "Fetches the Gantt chart data for a specific project. **Remember to change the project ID `1` in the URL** to a valid ID from your database."
+			},
+			"response": []
+		},
+		{
+			"name": "4. User Profile",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{accessToken}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/user-preferences/1/profile/",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"user-preferences",
+						"1",
+						"profile",
+						""
+					]
+				},
+				"description": "Fetches the profile for a specific user. **Remember to change the user ID `1` in the URL** to a valid ID from your database."
+			},
+			"response": []
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://127.0.0.1:8000",
+			"type": "string"
+		},
+		{
+			"key": "accessToken",
+			"value": "",
+			"type": "string"
+		}
+	]
+}
