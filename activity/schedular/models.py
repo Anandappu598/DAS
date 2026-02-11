@@ -198,11 +198,13 @@ class Task(models.Model):
     
     title = models.CharField(max_length=150)
     project = models.ForeignKey(Projects, on_delete=models.CASCADE, related_name='tasks')
+    project_lead = models.ForeignKey(User,on_delete=models.CASCADE,null= False,blank= False)
     task_type = models.CharField(max_length=20, choices=TASK_TYPE_CHOICES, default='STANDARD')
     priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default='MEDIUM')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     start_date = models.DateField(null=True, blank=True)
     due_date = models.DateField()
+    
     next_occurrence = models.DateField(null=True, blank=True, help_text='For recurring tasks')
     recurrence_pattern = models.CharField(max_length=20, choices=RECURRENCE_PATTERN_CHOICES, null=True, blank=True)
     github_link = models.URLField(null=True, blank=True, help_text='GitHub repository or issue link')
@@ -237,7 +239,6 @@ class Task(models.Model):
         """Regenerate a new instance of this recurring task"""
         if self.task_type != 'RECURRING' or not self.recurrence_pattern:
             return None
-        
         from datetime import timedelta
         from dateutil.relativedelta import relativedelta
         

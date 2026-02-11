@@ -740,12 +740,12 @@ class TaskViewSet(viewsets.ModelViewSet):
         user = self.request.user
         task = serializer.save()
         
-        # If ADMIN or TEAMLEAD, auto-approve the task
-        if user.role in ['ADMIN', 'TEAMLEAD']:
+        # If ADMIN, auto-approve the task
+        if user.role == 'ADMIN':
             # Task is auto-approved, no approval request needed
             pass
         else:
-            # For EMPLOYEE and MANAGER, require approval
+            # For EMPLOYEE, MANAGER, and TEAMLEAD, require approval
             ApprovalRequest.objects.create(
                 reference_type='TASK',
                 reference_id=task.id,
@@ -908,19 +908,14 @@ class QuickNoteViewSet(viewsets.ModelViewSet):
     filterset_fields = ['user']
     search_fields = ['note_text', 'user__email']
     ordering_fields = ['created_at']
+    
     def get_queryset(self):
-        """Filter quick notes based on user permissions"""
-        user = self.request.user
-        if user.role == 'ADMIN':
-            return QuickNote.objects.all()
-        else:
-            # Return quick notes created by the user
-            return QuickNote.objects.filter(user=user)
-        
-    def get_permissions(self):
-        if self.action == 'create':
-            self.permission_classes = [IsAdmin]
-        return [permission() for permission in self.permission_classes]
+        """Each user can only view their own quick notes"""
+        return QuickNote.objects.filter(user=self.request.user)
+    
+    def perform_create(self, serializer):
+        """Automatically set the user to the current user"""
+        serializer.save(user=self.request.user)
 
 class PendingViewSet(viewsets.ModelViewSet):
     """ViewSet for managing pending tasks"""
