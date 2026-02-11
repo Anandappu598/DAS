@@ -183,12 +183,30 @@ class Task(models.Model):
         ('DONE', 'Done'),
     )
     
+    TASK_TYPE_CHOICES = (
+        ('STANDARD', 'Standard'),
+        ('RECURRING', 'Recurring'),
+        ('ROUTINE', 'Routine'),
+    )
+    
+    RECURRENCE_PATTERN_CHOICES = (
+        ('DAILY', 'Daily'),
+        ('WEEKLY', 'Weekly'),
+        ('MONTHLY', 'Monthly'),
+        ('YEARLY', 'Yearly'),
+    )
+    
     title = models.CharField(max_length=150)
     project = models.ForeignKey(Projects, on_delete=models.CASCADE, related_name='tasks')
+    task_type = models.CharField(max_length=20, choices=TASK_TYPE_CHOICES, default='STANDARD')
     priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default='MEDIUM')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     start_date = models.DateField(null=True, blank=True)
     due_date = models.DateField()
+    next_occurrence = models.DateField(null=True, blank=True, help_text='For recurring tasks')
+    recurrence_pattern = models.CharField(max_length=20, choices=RECURRENCE_PATTERN_CHOICES, null=True, blank=True)
+    github_link = models.URLField(null=True, blank=True, help_text='GitHub repository or issue link')
+    figma_link = models.URLField(null=True, blank=True, help_text='Figma design link')
     completed_at = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     
@@ -214,6 +232,57 @@ class Task(models.Model):
         )
         
         return round((completed_weight / total_weight) * 100)
+    
+    def regenerate_recurring_task(self):
+        """Regenerate a new instance of this recurring task"""
+        if self.task_type != 'RECURRING' or not self.recurrence_pattern:
+            return None
+        
+        from datetime import timedelta
+        from dateutil.relativedelta import relativedelta
+        
+        # Calculate next occurrence based on pattern
+        if self.recurrence_pattern == 'DAILY':
+            next_occurrence = self.next_occurrence + timedelta(days=1)
+        elif self.recurrence_pattern == 'WEEKLY':
+            next_occurrence = self.next_occurrence + timedelta(weeks=1)
+        elif self.recurrence_pattern == 'MONTHLY':
+            next_occurrence = self.next_occurrence + relativedelta(months=1)
+        elif self.recurrence_pattern == 'YEARLY':
+            next_occurrence = self.next_occurrence + relativedelta(years=1)
+        else:
+            return None
+        
+        # Create new task instance
+        new_task = Task.objects.create(
+            title=self.title,
+            project=self.project,
+            task_type='RECURRING',
+            priority=self.priority,
+            start_date=next_occurrence,
+            due_date=next_occurrence,
+            next_occurrence=next_occurrence,
+            recurrence_pattern=self.recurrence_pattern
+        )
+        
+        # Copy assignees
+        for assignee in self.assignees.all():
+            TaskAssignee.objects.create(
+                task=new_task,
+                user=assignee.user,
+                role=assignee.role
+            )
+        
+        # Copy milestones (subtasks)
+        for subtask in self.subtasks.all():
+            SubTask.objects.create(
+                task=new_task,
+                title=subtask.title,
+                progress_weight=subtask.progress_weight,
+                due_date=next_occurrence
+            )
+        
+        return new_task
 
 
 class TaskAssignee(models.Model):
