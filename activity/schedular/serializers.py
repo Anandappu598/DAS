@@ -516,3 +516,15 @@ class RoutineTaskCreateSerializer(serializers.ModelSerializer):
                 continue
         
         return task
+class ProjectWorkStatsSerializer(serializers.Serializer):
+    """Serializer for project work statistics response"""
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    status = serializers.CharField()
+    total_tasks = serializers.IntegerField()
+    completed_tasks = serializers.IntegerField()
+    pending_tasks = serializers.IntegerField()
+    completion_percentage = serializers.IntegerField()
+    start_date = serializers.DateField()
+    due_date = serializers.DateField()
+    working_hours = serializers.IntegerField()

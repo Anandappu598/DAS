@@ -17,6 +17,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from .permissions import IsAdmin, IsEmployee, IsManager, IsTeamLead
 from django.db import models
+from django.db.models import Sum
 from django.utils import timezone
 from datetime import datetime, timedelta
 
@@ -1885,8 +1886,50 @@ class DashboardViewSet(viewsets.GenericViewSet):
         })
     
     @action(detail=False, methods=['get'])
+    def users_for_stats(self, request):
+        """Get list of users for project work stats dropdown"""
+        user = request.user
+        
+        # Get users based on role permissions
+        if user.role == 'ADMIN':
+            # Admin can see all active users
+            users = User.objects.filter(is_active=True)
+        elif user.role in ['MANAGER', 'TEAMLEAD']:
+            # Manager/TeamLead can see users from their department
+            users = User.objects.filter(
+                department=user.department,
+                is_active=True
+            )
+        else:
+            # Regular employees can only see themselves
+            users = User.objects.filter(id=user.id, is_active=True)
+        
+        user_list = []
+        for u in users:
+            # Count projects handled by each user
+            projects_count = Projects.objects.filter(handled_by=u).count()
+            
+            user_list.append({
+                'id': u.id,
+                'email': u.email,
+                'name': u.email.split('@')[0].replace('.', ' ').title(),
+                'role': u.role,
+                'role_display': u.get_role_display(),
+                'department': u.department.name if u.department else None,
+                'projects_count': projects_count
+            })
+        
+        # Sort by name
+        user_list.sort(key=lambda x: x['name'])
+        
+        return Response({
+            'count': len(user_list),
+            'users': user_list
+        })
+    
+    @action(detail=False, methods=['get'])
     def project_work_stats(self, request):
-        """Get project work stats - workload by user"""
+        """Get project work stats - completion percentage by projects handled by user"""
         user = request.user
         target_user_id = request.query_params.get('user_id', user.id)
         
@@ -1895,93 +1938,96 @@ class DashboardViewSet(viewsets.GenericViewSet):
         except User.DoesNotExist:
             return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
         
-        # Get tasks assigned to the user
-        task_assignees = TaskAssignee.objects.filter(
-            user=target_user
-        ).select_related('task', 'task__project')
+        # Permission check - all roles can view their own stats, 
+        # ADMIN/MANAGER/TEAMLEAD can view others based on department
+        if target_user.id != user.id:
+            if user.role == 'ADMIN':
+                # Admin can view anyone
+                pass
+            elif user.role in ['MANAGER', 'TEAMLEAD']:
+                # Manager/TeamLead can only view members from their department
+                if target_user.department != user.department:
+                    return Response(
+                        {'error': 'You can only view members from your department'}, 
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+            else:
+                # Employees can only view their own stats
+                return Response(
+                    {'error': 'You do not have permission to view other users statistics'}, 
+                    status=status.HTTP_403_FORBIDDEN
+                )
         
-        if task_assignees.count() == 0:
+        # Get all projects handled by the target user
+        projects = Projects.objects.filter(handled_by=target_user).prefetch_related('tasks')
+        
+        if projects.count() == 0:
             return Response({
                 'user': {
+                    'id': target_user.id,
                     'email': target_user.email,
-                    'role': target_user.role
+                    'name': target_user.email.split('@')[0].replace('.', ' ').title(),
+                    'role': target_user.role,
+                    'department': target_user.department.name if target_user.department else None
                 },
                 'total_percentage': 100,
-                'message': 'No tasks assigned to this user.',
-                'tasks': []
+                'message': 'No projects handled by this user.',
+                'projects': []
             })
         
-        # Group by project and calculate hours
-        task_data = []
-        total_hours = 0
+        # Calculate statistics for each project
+        project_data = []
+        total_tasks_all_projects = 0
+        total_completed_tasks_all_projects = 0
         
-        for assignee in task_assignees:
-            task = assignee.task
-            project = task.project
+        for project in projects:
+            # Get all tasks for this project
+            project_tasks = project.tasks.all()
+            total_tasks = project_tasks.count()
             
-            # Get hours worked on this task
-            hours = ActivityLog.objects.filter(
-                user=target_user,
-                today_plan__catalog_item__task=task
-            ).aggregate(total=Sum('hours_worked'))['total'] or 0
-            
-            # If no hours logged yet, use estimated hours from project
-            if hours == 0:
-                hours = project.working_hours / max(task_assignees.filter(task__project=project).count(), 1)
-            
-            task_data.append({
-                'name': task.title,
-                'project': project.name,
-                'hours': float(hours),
-                'status': task.status,
-                'priority': task.priority
-            })
-            
-            total_hours += float(hours)
+            if total_tasks > 0:
+                # Count completed tasks
+                completed_tasks = project_tasks.filter(status='DONE').count()
+                
+                # Calculate completion percentage
+                completion_percentage = round((completed_tasks / total_tasks) * 100)
+                
+                # Accumulate for overall stats
+                total_tasks_all_projects += total_tasks
+                total_completed_tasks_all_projects += completed_tasks
+                
+                project_data.append({
+                    'id': project.id,
+                    'name': project.name,
+                    'status': project.status,
+                    'total_tasks': total_tasks,
+                    'completed_tasks': completed_tasks,
+                    'pending_tasks': total_tasks - completed_tasks,
+                    'completion_percentage': completion_percentage,
+                    'start_date': project.start_date,
+                    'due_date': project.due_date,
+                    'working_hours': project.working_hours
+                })
         
-        # Calculate percentages
-        for task in task_data:
-            task['percentage'] = round((task['hours'] / total_hours * 100), 2) if total_hours > 0 else 0
+        # Calculate overall completion percentage
+        overall_percentage = 100
+        if total_tasks_all_projects > 0:
+            overall_percentage = round((total_completed_tasks_all_projects / total_tasks_all_projects) * 100)
         
         return Response({
             'user': {
+                'id': target_user.id,
                 'email': target_user.email,
-                'role': target_user.role
+                'name': target_user.email.split('@')[0].replace('.', ' ').title(),
+                'role': target_user.role,
+                'department': target_user.department.name if target_user.department else None
             },
-            'total_hours': round(total_hours, 2),
-            'total_percentage': 100,
-            'tasks': task_data
-        })
-    
-    @action(detail=False, methods=['get'])
-    def todays_focus(self, request):
-        """Get today's focus items for the user"""
-        user = request.user
-        today = timezone.now().date()
-        
-        # Get today's plan items
-        focus_items = TodayPlan.objects.filter(
-            user=user,
-            plan_date=today
-        ).select_related('catalog_item').order_by('order_index')
-        
-        items = []
-        for plan in focus_items:
-            items.append({
-                'id': plan.id,
-                'name': plan.catalog_item.name,
-                'type': plan.catalog_item.catalog_type,
-                'scheduled_start': plan.scheduled_start_time,
-                'scheduled_end': plan.scheduled_end_time,
-                'duration_minutes': plan.planned_duration_minutes,
-                'status': plan.status,
-                'order': plan.order_index
-            })
-        
-        return Response({
-            'date': today,
-            'count': len(items),
-            'items': items
+            'overall_completion_percentage': overall_percentage,
+            'total_projects': projects.count(),
+            'total_tasks': total_tasks_all_projects,
+            'completed_tasks': total_completed_tasks_all_projects,
+            'pending_tasks': total_tasks_all_projects - total_completed_tasks_all_projects,
+            'projects': project_data
         })
 
 
