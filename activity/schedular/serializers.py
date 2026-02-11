@@ -381,3 +381,16 @@ class GridViewTaskSerializer(serializers.ModelSerializer):
             return f"Delayed ({overdue_days}d)"
         
         return obj.get_status_display()
+
+class ProjectWorkStatsSerializer(serializers.Serializer):
+    """Serializer for project work statistics response"""
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    status = serializers.CharField()
+    total_tasks = serializers.IntegerField()
+    completed_tasks = serializers.IntegerField()
+    pending_tasks = serializers.IntegerField()
+    completion_percentage = serializers.IntegerField()
+    start_date = serializers.DateField()
+    due_date = serializers.DateField()
+    working_hours = serializers.IntegerField()
