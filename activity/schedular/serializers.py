@@ -382,6 +382,140 @@ class GridViewTaskSerializer(serializers.ModelSerializer):
         
         return obj.get_status_display()
 
+
+class TaskCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating standard tasks with assignees and milestones"""
+    assignees = serializers.ListField(
+        child=serializers.IntegerField(),
+        write_only=True,
+        required=False,
+        help_text="List of user IDs to assign to this task"
+    )
+    milestones = serializers.ListField(
+        child=serializers.DictField(),
+        write_only=True, 
+        required=False,
+        help_text="List of milestone objects with 'title' and 'progress_weight'"
+    )
+    
+    class Meta:
+        model = Task
+        fields = [
+            'title', 'priority', 'start_date', 'due_date', 
+            'github_link', 'figma_link', 'assignees', 'milestones'
+        ]
+    
+    def create(self, validated_data):
+        assignees_data = validated_data.pop('assignees', [])
+        milestones_data = validated_data.pop('milestones', [])
+        
+        # Create the standard task
+        task = Task.objects.create(task_type='STANDARD', **validated_data)
+        
+        # Create task assignees
+        for user_id in assignees_data:
+            try:
+                user = User.objects.get(id=user_id)
+                TaskAssignee.objects.create(
+                    task=task,
+                    user=user,
+                    role='DEV'
+                )
+            except User.DoesNotExist:
+                continue
+        
+        # Create milestones (as subtasks)
+        for milestone in milestones_data:
+            if 'title' in milestone:
+                SubTask.objects.create(
+                    task=task,
+                    title=milestone['title'],
+                    progress_weight=milestone.get('progress_weight', 25),
+                    due_date=task.due_date
+                )
+        
+        return task
+
+
+class RecurringTaskCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating recurring tasks with recurrence pattern"""
+    assignees = serializers.ListField(
+        child=serializers.IntegerField(),
+        write_only=True,
+        required=False
+    )
+    milestones = serializers.ListField(
+        child=serializers.DictField(),
+        write_only=True, 
+        required=False
+    )
+    
+    class Meta:
+        model = Task
+        fields = [
+            'title', 'priority', 'start_date', 'next_occurrence', 
+            'recurrence_pattern', 'assignees', 'milestones'
+        ]
+    
+    def create(self, validated_data):
+        assignees_data = validated_data.pop('assignees', [])
+        milestones_data = validated_data.pop('milestones', [])
+        
+        # Create the recurring task
+        task = Task.objects.create(
+            task_type='RECURRING', 
+            due_date=validated_data['next_occurrence'],  # Set due_date to next_occurrence
+            **validated_data
+        )
+        
+        # Create task assignees
+        for user_id in assignees_data:
+            try:
+                user = User.objects.get(id=user_id)
+                TaskAssignee.objects.create(task=task, user=user, role='DEV')
+            except User.DoesNotExist:
+                continue
+        
+        # Create milestones
+        for milestone in milestones_data:
+            if 'title' in milestone:
+                SubTask.objects.create(
+                    task=task,
+                    title=milestone['title'],
+                    progress_weight=milestone.get('progress_weight', 25),
+                    due_date=task.due_date
+                )
+        
+        return task
+
+
+class RoutineTaskCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating routine tasks (no milestones, no GitHub/Figma)"""
+    assignees = serializers.ListField(
+        child=serializers.IntegerField(),
+        write_only=True,
+        required=False
+    )
+    
+    class Meta:
+        model = Task
+        fields = ['title', 'priority', 'start_date', 'due_date', 'assignees']
+    
+    def create(self, validated_data):
+        assignees_data = validated_data.pop('assignees', [])
+        
+        # Create the routine task
+        task = Task.objects.create(task_type='ROUTINE', **validated_data)
+        
+        # Create task assignees
+        for user_id in assignees_data:
+            try:
+                user = User.objects.get(id=user_id)
+                TaskAssignee.objects.create(task=task, user=user, role='DEV')
+            except User.DoesNotExist:
+                continue
+        
+        return task
 class ProjectWorkStatsSerializer(serializers.Serializer):
     """Serializer for project work statistics response"""
     id = serializers.IntegerField()

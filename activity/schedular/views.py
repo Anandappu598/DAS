@@ -256,6 +256,51 @@ class ProjectViewSet(viewsets.ModelViewSet):
           return Response(serializer.data)
       
       @action(detail=True, methods=['post'])
+      def create_task(self, request, pk=None):
+          """Create a new standard task for this project"""
+          from .serializers import TaskCreateSerializer
+          project = self.get_object()
+          
+          serializer = TaskCreateSerializer(data=request.data)
+          if serializer.is_valid():
+              task = serializer.save(project=project)
+              from .serializers import TaskDetailSerializer
+              response_serializer = TaskDetailSerializer(task)
+              return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+          
+          return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+      
+      @action(detail=True, methods=['post'])
+      def create_recurring_task(self, request, pk=None):
+          """Create a new recurring task for this project"""
+          from .serializers import RecurringTaskCreateSerializer
+          project = self.get_object()
+          
+          serializer = RecurringTaskCreateSerializer(data=request.data)
+          if serializer.is_valid():
+              task = serializer.save(project=project)
+              from .serializers import TaskDetailSerializer
+              response_serializer = TaskDetailSerializer(task)
+              return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+          
+          return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+      
+      @action(detail=True, methods=['post'])
+      def create_routine_task(self, request, pk=None):
+          """Create a new routine task for this project"""
+          from .serializers import RoutineTaskCreateSerializer
+          project = self.get_object()
+          
+          serializer = RoutineTaskCreateSerializer(data=request.data)
+          if serializer.is_valid():
+              task = serializer.save(project=project)
+              from .serializers import TaskDetailSerializer
+              response_serializer = TaskDetailSerializer(task)
+              return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+          
+          return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+      
+      @action(detail=True, methods=['post'])
       def request_completion(self, request, pk=None):
           """Request approval for project completion"""
           project = self.get_object()
@@ -653,6 +698,10 @@ class ApprovalResponseViewSet(viewsets.ModelViewSet):
                         task.status = 'DONE'
                         task.completed_at = timezone.now().date()
                         task.save()
+                        
+                        # Handle recurring task regeneration
+                        if task.task_type == 'RECURRING':
+                            task.regenerate_recurring_task()
                     # If rejected, task stays in current status
                     
             except Task.DoesNotExist:
@@ -751,6 +800,17 @@ class TaskViewSet(viewsets.ModelViewSet):
         if user.role == 'ADMIN':
             task.status = 'DONE'
             task.save()
+            
+            # Handle recurring task regeneration
+            if task.task_type == 'RECURRING':
+                new_task = task.regenerate_recurring_task()
+                if new_task:
+                    return Response({
+                        "message": "Task marked as completed and regenerated (auto-approved for admin)",
+                        "task": TaskSerializer(task).data,
+                        "new_recurring_task": TaskSerializer(new_task).data
+                    })
+            
             return Response({
                 "message": "Task marked as completed (auto-approved for admin)",
                 "task": TaskSerializer(task).data
@@ -816,6 +876,29 @@ class SubTaskViewSet(viewsets.ModelViewSet):
                 models.Q(task__assignees__user=user) | 
                 models.Q(task__project__created_by=user)
             ).distinct()
+    
+    @action(detail=True, methods=['patch'])
+    def toggle_completion(self, request, pk=None):
+        """Toggle subtask completion status (for checkbox functionality)"""
+        subtask = self.get_object()
+        
+        # Toggle between DONE and PENDING
+        if subtask.status == 'DONE':
+            subtask.status = 'PENDING'
+            subtask.completed_at = None
+        else:
+            subtask.status = 'DONE'
+            from django.utils import timezone
+            subtask.completed_at = timezone.now().date()
+        
+        subtask.save()
+        
+        # Return updated subtask data along with parent task's new progress
+        serializer = SubTaskSerializer(subtask)
+        return Response({
+            'subtask': serializer.data,
+            'parent_task_progress': subtask.task.calculate_progress()
+        })
 
 class QuickNoteViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
