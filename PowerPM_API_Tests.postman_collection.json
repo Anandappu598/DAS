@@ -141,6 +141,106 @@
 				"description": "Fetches the profile for a specific user. **Remember to change the user ID `1` in the URL** to a valid ID from your database."
 			},
 			"response": []
+		},
+		{
+			"name": "5. Get Users for Project Work Stats Dropdown",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{accessToken}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/dashboard/users-for-stats/",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"dashboard",
+						"users-for-stats",
+						""
+					]
+				},
+				"description": "Fetches list of users based on role permissions. ADMIN can see all users, MANAGER/TEAMLEAD can see users from their department, EMPLOYEE can see only themselves. Use this to populate the dropdown in Project Work Stats feature."
+			},
+			"response": []
+		},
+		{
+			"name": "6. Get Project Work Stats for Specific User",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{accessToken}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/dashboard/project-work-stats/?user_id=2",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"dashboard",
+						"project-work-stats",
+						""
+					],
+					"query": [
+						{
+							"key": "user_id",
+							"value": "2",
+							"description": "The ID of the user to get statistics for. Change this to a valid user ID from your database."
+						}
+					]
+				},
+				"description": "Fetches project work statistics for a specific user. Shows completion percentages based on tasks completed for each project handled by the user. **Remember to change the user_id query parameter** to a valid ID from your database."
+			},
+			"response": []
+		},
+		{
+			"name": "7. Get Project Work Stats for Current User",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{accessToken}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/dashboard/project-work-stats/",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"dashboard",
+						"project-work-stats",
+						""
+					]
+				},
+				"description": "Fetches project work statistics for the currently logged-in user. No user_id parameter needed."
+			},
+			"response": []
 		}
 	],
 	"event": [
