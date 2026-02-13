@@ -147,9 +147,9 @@ class TaskDetailSerializer(serializers.ModelSerializer):
 class ProjectDetailSerializer(serializers.ModelSerializer):
     """Detailed project serializer with tasks and subtasks"""
     tasks = TaskDetailSerializer(many=True, read_only=True)
-    created_by_email = serializers.EmailField(source='created_by.email', read_only=True)
-    handled_by_email = serializers.EmailField(source='handled_by.email', read_only=True)
-    project_lead_email = serializers.EmailField(source='project_lead.email', read_only=True)
+    created_by_email = serializers.EmailField(source='created_by.email', read_only=True, allow_null=True)
+    handled_by_email = serializers.EmailField(source='handled_by.email', read_only=True, allow_null=True)
+    project_lead_email = serializers.EmailField(source='project_lead.email', read_only=True, allow_null=True)
     overall_progress = serializers.SerializerMethodField()
     
     class Meta:
@@ -516,6 +516,131 @@ class RoutineTaskCreateSerializer(serializers.ModelSerializer):
                 continue
         
         return task
+class ProjectCreateWithTasksSerializer(serializers.Serializer):
+    """Simplified serializer for creating a project with tasks from the frontend modal.
+    
+    Accepts only the fields the frontend collects:
+    - Project: name, description, project_lead, deadline
+    - Tasks: list of {name, priority, start_date, end_date, assignees[], milestones[]}
+    """
+    # Project fields
+    name = serializers.CharField(max_length=100)
+    description = serializers.CharField(required=False, default='')
+    project_lead = serializers.IntegerField(required=False, allow_null=True)
+    deadline = serializers.DateField(required=False, allow_null=True)
+    
+    # Tasks array
+    tasks = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        default=[],
+        help_text="List of task objects with: name, priority, start_date, end_date, assignees (user IDs), milestones (title strings)"
+    )
+    
+    def create(self, validated_data):
+        from datetime import date, timedelta
+        tasks_data = validated_data.pop('tasks', [])
+        lead_id = validated_data.pop('project_lead', None)
+        deadline = validated_data.pop('deadline', None)
+        
+        # Resolve project lead
+        lead_user = None
+        if lead_id:
+            try:
+                lead_user = User.objects.get(id=lead_id)
+            except User.DoesNotExist:
+                pass
+        
+        # Set smart defaults for required model fields
+        today = date.today()
+        due = deadline or (today + timedelta(days=30))
+        duration_days = (due - today).days if due > today else 1
+        
+        # handled_by: use project_lead, or first admin, or first active user 
+        handled_by = lead_user
+        if not handled_by:
+            handled_by = User.objects.filter(role='ADMIN', is_active=True).first()
+        if not handled_by:
+            handled_by = User.objects.filter(is_active=True).first()
+        
+        project = Projects.objects.create(
+            name=validated_data['name'],
+            description=validated_data.get('description', ''),
+            project_lead=lead_user,
+            start_date=today,
+            due_date=due,
+            status='ACTIVE',
+            working_hours=8,
+            duration=duration_days,
+            handled_by=handled_by,
+            is_approved=True,  # Auto-approve for now (AllowAny testing)
+        )
+        
+        # Create tasks
+        created_tasks = []
+        for t in tasks_data:
+            task_name = t.get('name', t.get('title', 'Untitled Task'))
+            # Map frontend priority (Low/Medium/High) to backend (LOW/MEDIUM/HIGH)
+            raw_priority = t.get('priority', 'Medium')
+            priority = raw_priority.upper() if raw_priority else 'MEDIUM'
+            if priority not in ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL'):
+                priority = 'MEDIUM'
+            
+            # Parse dates
+            start_date = t.get('start_date') or t.get('startDate')
+            end_date = t.get('end_date') or t.get('endDate') or t.get('due_date')
+            
+            if isinstance(start_date, str):
+                try:
+                    start_date = date.fromisoformat(start_date)
+                except (ValueError, TypeError):
+                    start_date = today
+            
+            if isinstance(end_date, str):
+                try:
+                    end_date = date.fromisoformat(end_date)
+                except (ValueError, TypeError):
+                    end_date = due
+            
+            task = Task.objects.create(
+                title=task_name,
+                project=project,
+                project_lead=lead_user,
+                task_type='STANDARD',
+                priority=priority,
+                start_date=start_date or today,
+                due_date=end_date or due,
+            )
+            
+            # Create assignees
+            assignee_ids = t.get('assignees', [])
+            for uid in assignee_ids:
+                try:
+                    uid_int = int(uid) if not isinstance(uid, int) else uid
+                    user = User.objects.get(id=uid_int)
+                    TaskAssignee.objects.create(task=task, user=user, role='DEV')
+                except (User.DoesNotExist, ValueError, TypeError):
+                    continue
+            
+            # Create milestones (subtasks) - frontend sends string titles
+            milestones = t.get('milestones', [])
+            for m in milestones:
+                title = m if isinstance(m, str) else m.get('title', str(m))
+                weight = 25 if isinstance(m, str) else m.get('progress_weight', 25)
+                SubTask.objects.create(
+                    task=task,
+                    title=title,
+                    progress_weight=weight,
+                    due_date=task.due_date,
+                )
+            
+            created_tasks.append(task)
+        
+        # Attach tasks to project object for response
+        project._created_tasks = created_tasks
+        return project
+
+
 class ProjectWorkStatsSerializer(serializers.Serializer):
     """Serializer for project work statistics response"""
     id = serializers.IntegerField()

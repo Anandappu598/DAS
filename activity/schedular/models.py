@@ -198,7 +198,7 @@ class Task(models.Model):
     
     title = models.CharField(max_length=150)
     project = models.ForeignKey(Projects, on_delete=models.CASCADE, related_name='tasks')
-    project_lead = models.ForeignKey(User,on_delete=models.CASCADE,null= False,blank= False)
+    project_lead = models.ForeignKey(User,on_delete=models.CASCADE,null=True,blank=True)
     task_type = models.CharField(max_length=20, choices=TASK_TYPE_CHOICES, default='STANDARD')
     priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default='MEDIUM')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
@@ -414,7 +414,7 @@ class Catalog(models.Model):
     task = models.ForeignKey(Task, on_delete=models.CASCADE, null=True, blank=True, related_name='catalog_items')
     
     # For courses and routines
-    estimated_hours = models.DecimalField(max_digits=5, decimal_places=2, default=1.0)
+    estimated_hours = models.DecimalField(max_digits=7, decimal_places=2, default=1.0)
     progress_percentage = models.IntegerField(default=0, help_text="Progress percentage (0-100)")
     
     is_active = models.BooleanField(default=True)
