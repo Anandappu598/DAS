@@ -49,6 +49,11 @@ INSTALLED_APPS = [
 
 AUTH_USER_MODEL = 'schedular.User'
 
+# Custom authentication backend to use email instead of username
+AUTHENTICATION_BACKENDS = [
+    'schedular.backends.EmailBackend',
+]
+
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
@@ -146,6 +151,16 @@ MIDDLEWARE = [
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+# For development, allow all localhost origins
+CORS_ORIGIN_REGEX_WHITELIST = [
+    r"^http://localhost:\d+$",
+    r"^http://127\.0\.0\.1:\d+$",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
