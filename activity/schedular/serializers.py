@@ -89,6 +89,7 @@ class TaskSerializer(serializers.ModelSerializer):
     project_name = serializers.CharField(source='project.name', read_only=True)
     assignees_list = serializers.SerializerMethodField()
     progress = serializers.SerializerMethodField()
+    subtasks = serializers.SerializerMethodField()
     
     class Meta:
         model = Task
@@ -101,6 +102,11 @@ class TaskSerializer(serializers.ModelSerializer):
     
     def get_progress(self, obj):
         return obj.calculate_progress()
+    
+    def get_subtasks(self, obj):
+        from .serializers import SubTaskSerializer
+        subtasks = obj.subtasks.all()
+        return SubTaskSerializer(subtasks, many=True).data
 
 class TaskAssigneeSerializer(serializers.ModelSerializer):
     user_email = serializers.EmailField(source='user.email', read_only=True)

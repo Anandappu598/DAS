@@ -901,7 +901,7 @@ class TaskAssigneeViewSet(viewsets.ModelViewSet):
         
 class SubTaskViewSet(viewsets.ModelViewSet):
     """ViewSet for managing subtasks"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]  # Allow unauthenticated access
     serializer_class = SubTaskSerializer
     queryset = SubTask.objects.all()
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -912,6 +912,9 @@ class SubTaskViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Filter subtasks based on user permissions"""
         user = self.request.user
+        # Allow unauthenticated users to access all subtasks (for AllowAny permission)
+        if not user.is_authenticated:
+            return SubTask.objects.all()
         if user.role == 'ADMIN':
             return SubTask.objects.all()
         else:
