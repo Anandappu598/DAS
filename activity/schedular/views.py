@@ -1535,11 +1535,28 @@ class ActivityLogViewSet(viewsets.ModelViewSet):
         work_notes = request.data.get('work_notes', '')
         minutes_left = request.data.get('minutes_left', 0)
         
+        # Get user-provided times and extra hours (for completion)
+        user_start_time = request.data.get('user_start_time')
+        user_end_time = request.data.get('user_end_time')
+        extra_hours = request.data.get('extra_hours', 0)
+        
         # Update activity log
         activity_log.actual_end_time = timezone.now()
         activity_log.work_notes = work_notes
         activity_log.is_task_completed = is_completed
         activity_log.status = 'COMPLETED' if is_completed else 'STOPPED'
+        
+        # Handle user-provided times and extra hours (if completing)
+        if is_completed:
+            if user_start_time:
+                from dateutil import parser
+                activity_log.user_start_time = parser.parse(user_start_time)
+            if user_end_time:
+                from dateutil import parser
+                activity_log.user_end_time = parser.parse(user_end_time)
+            if extra_hours:
+                activity_log.extra_hours = extra_hours
+        
         activity_log.calculate_time_worked()
         
         # Update today's plan

@@ -531,6 +531,11 @@ class ActivityLog(models.Model):
     actual_start_time = models.DateTimeField(auto_now_add=True)
     actual_end_time = models.DateTimeField(null=True, blank=True)
     
+    # User-provided times (when completing the task)
+    user_start_time = models.DateTimeField(null=True, blank=True, help_text="User-specified start time when completing")
+    user_end_time = models.DateTimeField(null=True, blank=True, help_text="User-specified end time when completing")
+    extra_hours = models.DecimalField(max_digits=5, decimal_places=2, default=0, help_text="Additional hours worked beyond planned time")
+    
     # Calculated fields
     hours_worked = models.DecimalField(max_digits=5, decimal_places=2, default=0, help_text="Hours worked")
     minutes_worked = models.IntegerField(default=0, help_text="Total minutes worked")
@@ -551,10 +556,19 @@ class ActivityLog(models.Model):
         return f"{self.user.email} - {self.today_plan.catalog_item.name} - {self.status}"
     
     def calculate_time_worked(self):
-        """Calculate time worked when stopped"""
-        if self.actual_end_time:
-            delta = self.actual_end_time - self.actual_start_time
-            self.minutes_worked = int(delta.total_seconds() / 60)
+        """Calculate time worked when stopped, using user-provided times if available"""
+        # Use user-provided times if available, otherwise use actual times
+        start_time = self.user_start_time if self.user_start_time else self.actual_start_time
+        end_time = self.user_end_time if self.user_end_time else self.actual_end_time
+        
+        if end_time and start_time:
+            delta = end_time - start_time
+            base_minutes = int(delta.total_seconds() / 60)
+            
+            # Add extra hours (convert to minutes)
+            extra_minutes = int(float(self.extra_hours) * 60) if self.extra_hours else 0
+            
+            self.minutes_worked = base_minutes + extra_minutes
             self.hours_worked = round(self.minutes_worked / 60, 2)
             self.save()
 

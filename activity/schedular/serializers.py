@@ -209,7 +209,7 @@ class ActivityLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = ActivityLog
         fields = '__all__'
-        read_only_fields = ('created_at', 'updated_at', 'hours_worked', 'minutes_worked')
+        read_only_fields = ('created_at', 'updated_at', 'hours_worked', 'minutes_worked', 'actual_start_time')
 
 
 class PendingSerializer(serializers.ModelSerializer):
