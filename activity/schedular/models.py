@@ -235,6 +235,26 @@ class Task(models.Model):
         
         return round((completed_weight / total_weight) * 100)
     
+    def recalculate_subtask_weights(self):
+        """Automatically recalculate and distribute weights evenly among all subtasks"""
+        subtasks = self.subtasks.all()
+        count = subtasks.count()
+        
+        if count == 0:
+            return
+        
+        # Calculate equal weight for each subtask
+        equal_weight = 100 // count  # Integer division
+        remainder = 100 % count  # Remainder to distribute
+        
+        # Update each subtask with equal weight
+        for index, subtask in enumerate(subtasks):
+            # Give the first 'remainder' subtasks an extra 1%
+            weight = equal_weight + (1 if index < remainder else 0)
+            if subtask.progress_weight != weight:
+                subtask.progress_weight = weight
+                subtask.save(update_fields=['progress_weight'])
+    
     def regenerate_recurring_task(self):
         """Regenerate a new instance of this recurring task"""
         if self.task_type != 'RECURRING' or not self.recurrence_pattern:
@@ -319,7 +339,10 @@ class SubTask(models.Model):
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='subtasks')
     title = models.CharField(max_length=150)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
-    progress_weight = models.IntegerField(default=25, help_text='Weight of this subtask in percentage (e.g., 25 for 25%)')
+    progress_weight = models.IntegerField(
+        default=0, 
+        help_text='Weight of this subtask in percentage - automatically calculated'
+    )
     due_date = models.DateField()
     completed_at = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

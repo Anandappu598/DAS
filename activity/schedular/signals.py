@@ -296,3 +296,28 @@ def notify_task_assignment(task, user):
         'reference_id': notification.reference_id,
         'created_at': str(notification.created_at),
     })
+
+
+@receiver(post_save, sender=SubTask)
+def recalculate_weights_on_subtask_create(sender, instance, created, **kwargs):
+    """Automatically recalculate subtask weights when a subtask is created"""
+    if created:
+        # Use a flag to prevent infinite recursion
+        if not hasattr(instance, '_recalculating_weights'):
+            instance._recalculating_weights = True
+            # Recalculate weights for all subtasks of this task
+            instance.task.recalculate_subtask_weights()
+            delattr(instance, '_recalculating_weights')
+
+
+from django.db.models.signals import post_delete
+
+@receiver(post_delete, sender=SubTask)
+def recalculate_weights_on_subtask_delete(sender, instance, **kwargs):
+    """Automatically recalculate subtask weights when a subtask is deleted"""
+    try:
+        # Recalculate weights for remaining subtasks of this task
+        instance.task.recalculate_subtask_weights()
+    except Exception:
+        # Task might be deleted, ignore
+        pass
