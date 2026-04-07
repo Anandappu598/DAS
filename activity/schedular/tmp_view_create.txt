@@ -1,0 +1,49 @@
+    def move_to_activity_log(self, request, pk=None):
+        """Move plan item to activity log (click arrow button)"""
+        from datetime import datetime
+        try:
+            from zoneinfo import ZoneInfo
+        except ImportError:
+            from backports.zoneinfo import ZoneInfo
+        
+        today_plan = self.get_object()
+        
+        # Get user (the ActivityLog must belong to the same user as the TodayPlan)
+        user = today_plan.user
+        
+        # Check if there's already an active activity log
+        active_log = ActivityLog.objects.filter(
+            user=user, 
+            status='IN_PROGRESS'
+        ).first()
+        
+        if active_log:
+            return Response(
+                {"error": "You already have an active task in progress. Please stop it first."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get current time in Asia/Kolkata timezone
+        try:
+            kolkata_tz = ZoneInfo('Asia/Kolkata')
+        except Exception:
+            kolkata_tz = timezone.get_current_timezone()
+        
+        current_local_time = timezone.now().astimezone(kolkata_tz)
+        
+        # Create activity log with explicit local start time
+        activity_log = ActivityLog.objects.create(
+            today_plan=today_plan,
+            user=user,
+            actual_start_time=current_local_time
+        )
+        
+        # Update today plan status
+        today_plan.status = 'IN_ACTIVITY'
+        today_plan.save()
+        
+        return Response({
+            "message": "Activity started successfully",
+            "activity_log": ActivityLogSerializer(activity_log).data
+        }, status=status.HTTP_201_CREATED)
+

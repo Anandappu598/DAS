@@ -1,0 +1,220 @@
+class CatalogProjectViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for Planner Catalog projects - shows only projects assigned to the user.
+    This endpoint is separate from ProjectViewSet to prevent Dashboard changes 
+    from affecting the Planner Catalog feature.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = ProjectSerializer
+    queryset = Projects.objects.all()
+    
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['status', 'handled_by', 'created_by', 'project_lead']
+    search_fields = ['name', 'description']
+    ordering_fields = ['start_date', 'due_date', 'create_date', 'name']
+    ordering = ['-create_date']
+
+    def get_queryset(self):
+        """Show all active projects for the catalog - visible to all users"""
+        # For ALL users, show all active projects in the catalog
+        return Projects.objects.filter(status='ACTIVE').distinct()
+    
+    def get_serializer_class(self):
+        if self.action in ['list', 'retrieve']:
+            from .serializers import ProjectDetailSerializer
+            return ProjectDetailSerializer
+        return ProjectSerializer
+
+class CatalogTaskViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for Planner Catalog tasks - shows only tasks assigned to the user.
+    This endpoint is separate from TaskViewSet to prevent Dashboard changes 
+    from affecting the Planner Catalog feature.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = TaskSerializer
+    pagination_class = None
+    queryset = Task.objects.all()
+    
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['priority', 'status', 'project', 'due_date', 'start_date']
+    search_fields = ['title', 'project__name']
+    ordering_fields = ['created_at', 'due_date', 'start_date', 'priority']
+    
+    def get_queryset(self):
+        """Show all active tasks for the catalog - visible to all users"""
+        # For ALL users, show all tasks that are not 'DONE'
+        return Task.objects.exclude(status='DONE').distinct()
+
+class CatalogViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing catalog items"""
+    permission_classes = [AllowAny]  # Temporarily allow unauthenticated access for testing
+    serializer_class = CatalogSerializer
+    pagination_class = None
+    queryset = Catalog.objects.all()
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['catalog_type', 'user', 'is_active']
+    search_fields = ['name', 'description']
+    ordering_fields = ['created_at', 'name']
+    
+    def get_queryset(self):
+        """Show all active catalog items - visible to all users"""
+        # All users see all active catalog items
+        return Catalog.objects.filter(is_active=True).distinct()
+    
+    def perform_create(self, serializer):
+        """Set the user field to current user when creating"""
+        serializer.save(user=self.request.user)
+    
+    @action(detail=False, methods=['get'])
+    def my_catalog(self, request):
+        """Get current user's catalog items"""
+        catalog = Catalog.objects.filter(user=request.user, is_active=True)
+        serializer = self.get_serializer(catalog, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def by_type(self, request):
+        """Get catalog items by type"""
+        catalog_type = request.query_params.get('type')
+        if not catalog_type:
+            return Response(
+                {"error": "type parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        catalog = self.get_queryset().filter(catalog_type=catalog_type.upper())
+        serializer = self.get_serializer(catalog, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def update_progress(self, request, pk=None):
+        """Update progress percentage for a catalog item"""
+        catalog = self.get_object()
+        
+        # If linked to task/project, calculate automatically
+        if catalog.task or catalog.project:
+            progress = catalog.calculate_progress()
+            return Response({
+                "message": "Progress calculated automatically",
+                "progress_percentage": progress
+            })
+        
+        # For manual items (courses, routines, custom), allow manual update
+        progress = request.data.get('progress_percentage')
+        if progress is None:
+            return Response(
+                {"error": "progress_percentage is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            progress = int(progress)
+            if not 0 <= progress <= 100:
+                raise ValueError()
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "progress_percentage must be an integer between 0 and 100"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        catalog.progress_percentage = progress
+        catalog.save()
+        
+        return Response({
+            "message": "Progress updated successfully",
+            "progress_percentage": catalog.progress_percentage
+        })
+    
+    @action(detail=False, methods=['post'])
+    def refresh_all_progress(self, request):
+        """Refresh progress for all catalog items linked to tasks/projects"""
+        catalogs = Catalog.objects.filter(user=request.user).filter(
+            models.Q(task__isnull=False) | models.Q(project__isnull=False)
+        )
+        
+        updated_count = 0
+        for catalog in catalogs:
+            catalog.calculate_progress()
+            updated_count += 1
+        
+        return Response({
+            "message": f"Progress refreshed for {updated_count} catalog items",
+            "count": updated_count
+        })
+
+class CatalogProjectViewSet(viewsets.ModelViewSet):
+    """
+    Dedicated endpoint for Planner Catalog - Returns only projects assigned to the logged-in user
+    GET /api/catalog-projects/
+    
+    This is separate from /api/projects/ which is used by Dashboard and shows all team projects to admin.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = ProjectSerializer
+    queryset = Projects.objects.all()
+    
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['status', 'handled_by', 'created_by', 'project_lead']
+    search_fields = ['name', 'description']
+    ordering_fields = ['start_date', 'due_date', 'create_date', 'name']
+    ordering = ['-create_date']
+    
+    def get_queryset(self):
+        """
+        Return only projects where the current user is assigned.
+        This applies to ALL users including ADMIN.
+        """
+        user = self.request.user
+        
+        # Return only projects where user is creator, lead, handled_by, or assigned to any task
+        return Projects.objects.filter(
+            models.Q(created_by=user) | 
+            models.Q(project_lead=user) | 
+            models.Q(handled_by=user) |
+            models.Q(tasks__assignees__user=user)
+        ).distinct()
+    
+    def list(self, request, *args, **kwargs):
+        """Override list to handle pagination"""
+        queryset = self.filter_queryset(self.get_queryset())
+
+        if request.query_params.get('all_projects') == 'true':
+            serializer = self.get_serializer(queryset, many=True)
+            return Response(serializer.data)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+class CatalogTaskViewSet(viewsets.ModelViewSet):
+    """
+    Dedicated endpoint for Planner Catalog - Returns only tasks assigned to the logged-in user
+    GET /api/catalog-tasks/
+    
+    This is separate from /api/tasks/ which is used by Dashboard and shows all team tasks to admin.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = TaskSerializer
+    pagination_class = None
+    queryset = Task.objects.all()
+    
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['priority', 'status', 'project', 'due_date', 'start_date']
+    search_fields = ['title', 'project__name']
+    ordering_fields = ['created_at', 'due_date', 'start_date', 'priority']
+    
+    def get_queryset(self):
+        """
+        Return only tasks where the current user is assigned.
+        This applies to ALL users including ADMIN.
+        """
+        user = self.request.user
+        
+        # Return only tasks where user is an assignee
+        return Task.objects.filter(assignees__user=user).exclude(status='DONE').distinct()
+

@@ -1,0 +1,19 @@
+﻿TASK DETAILED INFO:
+  ID: 67
+  Title: COD
+  Status: IN_PROGRESS
+  Approval Status: pending_completion
+
+ALL APPROVAL REQUESTS FOR THIS TASK:
+  1. REQ ID: 69
+     Type: COMPLETION
+     Status: REJECTED
+     By: durgasprasadag@gmail.com
+     At: 2026-03-15 16:45:18.131775+00:00
+  2. REQ ID: 66
+     Type: COMPLETION
+     Status: REJECTED
+     By: durgasprasadag@gmail.com
+     At: 2026-03-15 16:34:42.597238+00:00
+
+SEARCHING FOR ANY PENDING TASK COMPLETIONS IN SYSTEM:

@@ -1,0 +1,63 @@
+Found class: PendingViewSet
+Method: get_queryset
+    def get_queryset(self):
+        """Filter pending tasks based on user permissions"""
+        user = self.request.user
+        queryset = Pending.objects.all()
+        target_user_id = self.request.query_params.get('user_id')
+        
+        if target_user_id:
+            if user.role == 'ADMIN':
+                queryset = queryset.filter(user__id=target_user_id)
+            elif user.role in ['MANAGER', 'TEAMLEAD']:
+                from django.contrib.auth import get_user_model
+                User = get_user_model()
+                try:
+                    requested_user = User.objects.get(id=target_user_id)
+                    if getattr(requested_user, 'department', None) == getattr(user, 'department', None):
+                        queryset = queryset.filter(user__id=target_user_id)
+                    else:
+                        queryset = queryset.filter(user=user)
+                except User.DoesNotExist:
+                    queryset = queryset.filter(user=user)
+            else:
+                queryset = queryset.filter(user=user)
+        else:
+            queryset = queryset.filter(user=user)
+        
+        return queryset
+
+Found class: ActivityLogViewSet
+Method: get_queryset
+    def get_queryset(self):
+        """Filter activity logs based on user permissions"""
+        user = self.request.user
+        queryset = ActivityLog.objects.all()
+        target_user_id = self.request.query_params.get('user_id')
+        
+        if target_user_id:
+            if user.role == 'ADMIN':
+                queryset = queryset.filter(user__id=target_user_id)
+            elif user.role in ['MANAGER', 'TEAMLEAD']:
+                from django.contrib.auth import get_user_model
+                User = get_user_model()
+                try:
+                    requested_user = User.objects.get(id=target_user_id)
+                    if getattr(requested_user, 'department', None) == getattr(user, 'department', None):
+                        queryset = queryset.filter(user__id=target_user_id)
+                    else:
+                        queryset = queryset.filter(user=user)
+                except User.DoesNotExist:
+                    queryset = queryset.filter(user=user)
+            else:
+                queryset = queryset.filter(user=user)
+        else:
+            queryset = queryset.filter(user=user)
+            
+        # Date filtering
+        date_param = self.request.query_params.get('date')
+        if date_param:
+            queryset = queryset.filter(today_plan__plan_date=date_param)
+            
+        return queryset
+

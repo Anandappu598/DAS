@@ -1,0 +1,81 @@
+Found class: TodayPlanViewSet
+Method: get_queryset
+    def get_queryset(self):
+        """Filter today's plan based on user permissions.
+        Admin can pass ?user_id=<id> to view any employee's plan.
+        """
+        user = self.request.user
+        queryset = TodayPlan.objects.all()
+
+        if user.is_authenticated:
+            target_user_id = self.request.query_params.get('user_id')
+            if target_user_id:
+                if user.role == 'ADMIN':
+                    queryset = queryset.filter(user__id=target_user_id)
+                elif user.role in ['MANAGER', 'TEAMLEAD']:
+                    from django.contrib.auth import get_user_model
+                    User = get_user_model()
+                    try:
+                        requested_user = User.objects.get(id=target_user_id)
+                        if getattr(requested_user, 'department', None) == getattr(user, 'department', None):
+                            queryset = queryset.filter(user__id=target_user_id)
+                        else:
+                            queryset = queryset.filter(user=user)
+                    except User.DoesNotExist:
+                        queryset = queryset.filter(user=user)
+                else:
+                    queryset = queryset.filter(user=user)
+            else:
+                queryset = queryset.filter(user=user)
+        
+        # Date filtering
+        start_date = self.request.query_params.get('start_date')
+        end_date = self.request.query_params.get('end_date')
+        date = self.request.query_params.get('date') # Specific day
+        
+        if start_date and end_date:
+            queryset = queryset.filter(plan_date__range=[start_date, end_date])
+        elif date:
+            queryset = queryset.filter(plan_date=date)
+            
+        # exclude unplanned items from the main list (they show up in Activity Log only)
+        # BUT: Allow them to be retrieved by PK (e.g., when moving to activity log)
+        if self.action != 'retrieve' and 'pk' not in self.kwargs:
+            queryset = queryset.filter(is_unplanned=False)
+            
+        return queryset
+
+Method: perform_create
+    def perform_create(self, serializer):
+        """Set the user field and auto-fill missing fields when creating"""
+        user = self.request.user if self.request.user.is_authenticated else User.objects.first()
+        
+        # Get plan_date from request
+        plan_date = self.request.data.get('plan_date', timezone.now().date())
+        if isinstance(plan_date, str):
+            from datetime import datetime
+            plan_date = datetime.strptime(plan_date, '%Y-%m-%d').date()
+        
+        # Calculate order_index
+        last_plan = TodayPlan.objects.filter(user=user, plan_date=plan_date).order_by('-order_index').first()
+        order_index = (last_plan.order_index + 1) if last_plan else 0
+        
+        # Get scheduled times from request (if explicitly provided)
+        scheduled_start_time = self.request.data.get('scheduled_start_time')
+        scheduled_end_time = self.request.data.get('scheduled_end_time')
+        
+        # Never auto-generate times - times remain null until set in activity log
+        # Build the save kwargs
+        save_kwargs = {
+            'user': user,
+            'order_index': order_index,
+        }
+        
+        # Only include times if they are explicitly provided
+        if scheduled_start_time:
+            save_kwargs['scheduled_start_time'] = scheduled_start_time
+        if scheduled_end_time:
+            save_kwargs['scheduled_end_time'] = scheduled_end_time
+        
+        serializer.save(**save_kwargs)
+
