@@ -8,19 +8,19 @@ from django.contrib.auth.models import AnonymousUser
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
-# DEVELOPMENT: Patch AnonymousUser with required attributes
-def patch_anonymous_user():
-    """Add required attributes to AnonymousUser for development"""
-    if not hasattr(AnonymousUser, 'role'):
-        AnonymousUser.id = -1  # Fake ID for anonymous users in development
-        AnonymousUser.role = 'ADMIN'
-        AnonymousUser.department = None
-        AnonymousUser.phone_number = None
-        AnonymousUser.theme_preference = 'auto'
-        AnonymousUser.is_active = True
-
-# Apply patch when module loads
-patch_anonymous_user()
+# AUTHENTICATION ENABLED: Anonymous user patching not needed
+# def patch_anonymous_user():
+#     """Add required attributes to AnonymousUser for development"""
+#     if not hasattr(AnonymousUser, 'role'):
+#         AnonymousUser.id = -1  # Fake ID for anonymous users in development
+#         AnonymousUser.role = 'ADMIN'
+#         AnonymousUser.department = None
+#         AnonymousUser.phone_number = None
+#         AnonymousUser.theme_preference = 'auto'
+#         AnonymousUser.is_active = True
+# 
+# # Apply patch when module loads
+# patch_anonymous_user()
 
 class ImpersonationMiddleware:
     """

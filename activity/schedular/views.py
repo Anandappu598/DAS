@@ -39,7 +39,6 @@ def get_user_role(user, default='ADMIN'):
 # Create your views here.
 
 class LoginViewSet(viewsets.GenericViewSet):
-    permission_classes = [AllowAny]
     serializer_class = LoginSerializers
     
     def create(self, request):
@@ -58,7 +57,6 @@ class LoginViewSet(viewsets.GenericViewSet):
     
 
 class SignupViewSet(viewsets.GenericViewSet):
-    permission_classes = [AllowAny]
     serializer_class = SignupWithOTPSerializer
 
     def create(self, request):
@@ -215,7 +213,6 @@ class UserPreferencesViewSet(viewsets.GenericViewSet):
 
 
 class ProjectViewSet(ProjectQuerySetMixin, viewsets.ModelViewSet):
-      permission_classes = [AllowAny]  # DEVELOPMENT: Allow unauthenticated access
       serializer_class = ProjectSerializer
       queryset = Projects.objects.all() # Base queryset, overridden by mixin
       
@@ -1489,7 +1486,6 @@ class ApprovalResponseViewSet(viewsets.ModelViewSet):
     
 class TaskViewSet(TaskQuerySetMixin, viewsets.ModelViewSet):
     """ViewSet for managing tasks"""
-    permission_classes = [AllowAny]  # DEVELOPMENT: Allow unauthenticated access
     serializer_class = TaskSerializer
     pagination_class = None
     queryset = Task.objects.all() # Base default
@@ -5311,7 +5307,6 @@ class ProjectAnalyticsViewSet(viewsets.GenericViewSet):
     # Disable all DRF generic machinery - custom actions build their own responses
     queryset = Task.objects.all()
     filter_backends = []
-    permission_classes = [AllowAny]  # DEVELOPMENT: Allow unauthenticated access
 
     def get_achieved_hours_for_task(self, task):
         """Calculate total achieved hours from ActivityLog for a specific task"""

@@ -59,13 +59,12 @@ AUTHENTICATION_BACKENDS = [
 
 
 REST_FRAMEWORK = {
-    # AUTHENTICATION DISABLED FOR DEVELOPMENT
-    # "DEFAULT_AUTHENTICATION_CLASSES": (
-    #     "schedular.authentication.ImpersonationJWTAuthentication",
-    # ),
-    "DEFAULT_AUTHENTICATION_CLASSES": (),  # Empty - no authentication required
+    # AUTHENTICATION ENABLED FOR PRODUCTION
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "schedular.authentication.ImpersonationJWTAuthentication",
+    ),
     "DEFAULT_PERMISSION_CLASSES": (
-        "rest_framework.permissions.AllowAny",  # Allow all access - no permissions required
+        "rest_framework.permissions.IsAuthenticated",  # Require authentication
     ),
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
