@@ -5,6 +5,8 @@ from .views import (ProjectWorkingHoursViewSet, TeamActivityStatusViewSet, SyncH
                     CatalogProjectViewSet, CatalogTaskViewSet, ProjectCompletionLineChartViewSet, 
                     TaskCompletionLineChartViewSet, HoursCompletionLineChartViewSet, ProjectAnalyticsViewSet)
 from .sso_views import SSOLoginView, InactiveUserView
+from .views_performance import (DailyPerformanceView, DateRangePerformanceView, 
+                               WeeklyComparisonView, MonthlyComparisonView, PerformanceDashboardView)
 
 router = DefaultRouter()
 
@@ -69,6 +71,16 @@ urlpatterns = [
     # SSO Routes
     path('sso-login/', SSOLoginView.as_view(), name='sso-login'),
     path('inactive-user/', InactiveUserView.as_view(), name='inactive-user'),
+    
+    # Performance & Analytics APIs
+    path('daily-performance/', DailyPerformanceView.as_view(), name='daily-performance-today'),
+    path('daily-performance/<str:date_str>/', DailyPerformanceView.as_view(), name='daily-performance'),
+    path('daily-performance/range/<str:start_date>/<str:end_date>/', DateRangePerformanceView.as_view(), name='daily-performance-range'),
+    path('weekly-comparison/', WeeklyComparisonView.as_view(), name='weekly-comparison-current'),
+    path('weekly-comparison/<int:year>/<int:week>/', WeeklyComparisonView.as_view(), name='weekly-comparison'),
+    path('monthly-comparison/', MonthlyComparisonView.as_view(), name='monthly-comparison-current'),
+    path('monthly-comparison/<int:year>/<int:month>/', MonthlyComparisonView.as_view(), name='monthly-comparison'),
+    path('performance-dashboard/', PerformanceDashboardView.as_view(), name='performance-dashboard'),
     
     # API Routes
     path('', include(router.urls)),
