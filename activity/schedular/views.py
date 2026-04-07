@@ -5308,13 +5308,62 @@ class ProjectAnalyticsViewSet(viewsets.GenericViewSet):
     queryset = Task.objects.all()
     filter_backends = []
 
-    def get_achieved_hours_for_task(self, task):
-        """Calculate total achieved hours from ActivityLog for a specific task"""
+    def get_achieved_hours_for_task(self, task, user_id=None):
+        """
+        Calculate total achieved hours from ActivityLog for a specific task.
+        Uses aggressive cross-linking (strict, catalog title, and custom title).
+        Includes IN_PROGRESS logs for live updates.
+        """
         from django.db.models import Sum
-        total = ActivityLog.objects.filter(
+        from django.utils import timezone
+        
+        # Base filter for valid work sessions
+        # IN_PROGRESS is added here to support dynamic live updates
+        base_filters = {'status__in': ['COMPLETED', 'PENDING', 'STOPPED', 'IN_PROGRESS']}
+        if user_id:
+            base_filters['user_id'] = user_id
+
+        # 1. Strict Match: Directly linked via Task ForeignKey
+        strict_qs = ActivityLog.objects.filter(
             today_plan__catalog_item__task=task,
-            status='COMPLETED'
-        ).aggregate(total=Sum('hours_worked'))['total'] or 0.0
+            **base_filters
+        )
+        
+        # 2. Catalog Match: Same name in same project catalog
+        catalog_name_qs = ActivityLog.objects.filter(
+            today_plan__catalog_item__isnull=False,
+            today_plan__catalog_item__task__isnull=True,
+            today_plan__catalog_item__project=task.project,
+            today_plan__catalog_item__name__iexact=task.title,
+            **base_filters
+        )
+
+        # 3. Custom Match: "Unplanned" task started by typing name (no catalog item)
+        custom_name_qs = ActivityLog.objects.filter(
+            today_plan__catalog_item__isnull=True,
+            today_plan__custom_title__iexact=task.title,
+            **base_filters
+        )
+        
+        def calculate_total_qs_hours(qs):
+            """Calculate total hours including live time for in-progress tasks"""
+            total_float = float(qs.aggregate(total=Sum('hours_worked'))['total'] or 0.0)
+            
+            # For IN_PROGRESS tasks that don't have hours_worked updated yet
+            in_progress = qs.filter(status='IN_PROGRESS')
+            now = timezone.now()
+            for log in in_progress:
+                if log.hours_worked <= 0:
+                    delta = now - log.actual_start_time
+                    total_float += float(delta.total_seconds() / 3600.0)
+            return total_float
+            
+        total = (
+            calculate_total_qs_hours(strict_qs) +
+            calculate_total_qs_hours(catalog_name_qs) +
+            calculate_total_qs_hours(custom_name_qs)
+        )
+        
         return float(total)
 
     def get_task_planned_hours(self, task):
@@ -5437,7 +5486,13 @@ class ProjectAnalyticsViewSet(viewsets.GenericViewSet):
         }
         """
         project_id = request.query_params.get('project_id')
-        employee_id = request.query_params.get('employee_id')
+        employee_id = request.query_params.get('employee_id') or request.query_params.get('user_id')
+        
+        # Normalize "null" or empty strings from frontend
+        if project_id in [None, '', 'null', 'undefined']:
+            project_id = None
+        if employee_id in [None, '', 'null', 'undefined']:
+            employee_id = None
         
         # At least one filter is required
         if not project_id and not employee_id:
@@ -5480,37 +5535,154 @@ class ProjectAnalyticsViewSet(viewsets.GenericViewSet):
                     status=status.HTTP_404_NOT_FOUND
                 )
         
-        # Build tasks queryset based on filters
-        if project_id and employee_id:
-            # Both filters: tasks in project assigned to employee
-            tasks_qs = project.tasks.filter(assignees__user_id=employee_id).distinct()
-        elif project_id:
-            # Project only: all tasks in project
-            tasks_qs = project.tasks.all()
-        else:
-            # Employee only: all tasks assigned to employee (across all projects)
-            tasks_qs = Task.objects.filter(assignees__user_id=employee_id).distinct()
-        
-        # Build tasks data with project info
+        # Build tasks queryset and calculate totals
         tasks_data = []
         total_planned = 0.0
         total_achieved = 0.0
         
-        for task in tasks_qs:
-            planned_hours = float(task.planned_hours or 0.0)
-            achieved_hours = self.get_achieved_hours_for_task(task)
+        if project_id:
+            # For a specific project, we show ALL tasks in the distribution donut
+            # but we can filter the achieved hours by user if requested.
+            tasks_qs = project.tasks.all()
+            total_planned = float(project.planned_hours or 0.0)
             
-            total_planned += planned_hours
-            total_achieved += achieved_hours
+            # If tasks exceed project budget sum, we use the sum of tasks
+            tasks_sum = sum(float(t.planned_hours or 0.0) for t in tasks_qs)
+            total_planned = max(total_planned, tasks_sum)
             
-            tasks_data.append({
-                'id': task.id,
-                'name': task.title,
-                'project_id': task.project_id,
-                'project_name': task.project.name,
-                'planned_hours': planned_hours,
-                'achieved_hours': achieved_hours
-            })
+            # Populate tasks_data from the task queryset
+            processed_task_ids = set()
+            for task in tasks_qs:
+                p_h = float(task.planned_hours or 0.0)
+                a_h = self.get_achieved_hours_for_task(task, user_id=employee_id)
+                total_achieved += a_h
+                processed_task_ids.add(task.id)
+                tasks_data.append({
+                    'id': task.id,
+                    'name': task.title,
+                    'project_id': task.id,
+                    'project_name': project.name,
+                    'planned_hours': p_h,
+                    'achieved_hours': a_h
+                })
+            
+            # ORPHAN WORK SWEEP: Add unplanned activity logs that belong to the project
+            # but aren't strictly linked to any of the predefined 'Task' objects.
+            orphan_logs_filters = {
+                'today_plan__catalog_item__project_id': project_id,
+                'status__in': ['COMPLETED', 'PENDING', 'STOPPED', 'IN_PROGRESS']
+            }
+            if employee_id:
+                orphan_logs_filters['user_id'] = employee_id
+            
+            # Exclude tasks we already processed
+            orphan_logs = ActivityLog.objects.filter(
+                **orphan_logs_filters
+            ).exclude(today_plan__catalog_item__task_id__in=processed_task_ids)
+            
+            # Group by task name to show as slices in the donut
+            from django.db.models import Sum
+            from django.utils import timezone
+            
+            unplanned_tasks_agg = {}
+            for log in orphan_logs:
+                # Name comes from catalog item if it exists, or custom title (for unplanned)
+                name = log.today_plan.catalog_item.name if log.today_plan.catalog_item else log.today_plan.custom_title
+                if not name:
+                    name = "Unplanned Work"
+                
+                # Use current log hours or calculate live if in_progress
+                hrs = float(log.hours_worked or 0.0)
+                if log.status == 'IN_PROGRESS' and hrs <= 0:
+                    delta = timezone.now() - log.actual_start_time
+                    hrs = float(delta.total_seconds() / 3600.0)
+                
+                if name in unplanned_tasks_agg:
+                    unplanned_tasks_agg[name] += hrs
+                else:
+                    unplanned_tasks_agg[name] = hrs
+            
+            # Add these unplanned items to tasks_data
+            for name, hrs in unplanned_tasks_agg.items():
+                total_achieved += hrs
+                tasks_data.append({
+                    'id': -1, # Marker for unplanned
+                    'name': f"{name} (Unplanned)",
+                    'project_id': project_id,
+                    'project_name': project.name,
+                    'planned_hours': 0.0,
+                    'achieved_hours': hrs
+                })
+        elif employee_id:
+            # Employee only view (across multiple projects)
+            # Show individual task distribution for this specific employee
+            tasks_qs = Task.objects.filter(assignees__user_id=employee_id, project__status='ACTIVE').distinct()
+            total_planned = sum(float(t.planned_hours or 0.0) for t in tasks_qs)
+            
+            for task in tasks_qs:
+                p_h = float(task.planned_hours or 0.0)
+                a_h = self.get_achieved_hours_for_task(task, user_id=employee_id)
+                total_achieved += a_h
+                tasks_data.append({
+                    'id': task.id,
+                    'name': task.title,
+                    'project_id': task.project_id,
+                    'project_name': task.project.name,
+                    'planned_hours': p_h,
+                    'achieved_hours': a_h
+                })
+        else:
+            # ALL PROJECTS VIEW (Global Portfolio)
+            # Aggregate stats across projects and show per-project distribution
+            from django.db.models import Sum
+            
+            # Filter active projects. If employee_id is provided, only show projects they are assigned to.
+            active_projects = Projects.objects.filter(status='ACTIVE')
+            if employee_id:
+                active_projects = active_projects.filter(project_assignees=employee_id)
+            
+            # Use aggregate for performance on planned hours
+            total_planned = active_projects.aggregate(total=Sum('planned_hours'))['total'] or 0.0
+            total_planned = float(total_planned)
+            
+            for p in active_projects:
+                # Sum all activity logs for this project (portfolio distribution)
+                log_filters = {
+                    'today_plan__catalog_item__project_id': p.id,
+                    'status__in': ['COMPLETED', 'PENDING', 'STOPPED']
+                }
+                if employee_id:
+                    log_filters['user_id'] = employee_id
+                
+                a_h = ActivityLog.objects.filter(**log_filters).aggregate(total=Sum('hours_worked'))['total'] or 0.0
+                a_h = float(a_h)
+                total_achieved += a_h
+                
+                tasks_data.append({
+                    'id': p.id,
+                    'name': p.name, # Map project name to 'name' so donut chart segments are project-based
+                    'project_id': p.id,
+                    'project_name': p.name,
+                    'planned_hours': float(p.planned_hours or 0.0),
+                    'achieved_hours': a_h
+                })
+        
+        # Final safety check: if we have a project but no total_achieved 
+        # (maybe logged against the project directly, not specific tasks)
+        if project_id and total_achieved == 0:
+            # Sum ALL activity logs linked to this project's catalog items
+            from django.db.models import Sum
+            project_logs_filters = {
+                'today_plan__catalog_item__project_id': project_id,
+                'status__in': ['COMPLETED', 'PENDING', 'STOPPED']
+            }
+            if employee_id:
+                project_logs_filters['user_id'] = employee_id
+                
+            total_achieved = ActivityLog.objects.filter(
+                **project_logs_filters
+            ).aggregate(total=Sum('hours_worked'))['total'] or 0.0
+            total_achieved = float(total_achieved)
         
         return Response({
             'project': project_data,
