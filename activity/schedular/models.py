@@ -437,10 +437,8 @@ class Task(models.Model):
         return f"{self.title} - {self.project.name}"
 
     def get_achieved_hours(self, start_date=None, end_date=None):
-        """Calculate total achieved hours from activity logs for this task ONLY if it is completed"""
-        if self.status != 'DONE':
-            return 0
-            
+        """Calculate total achieved hours from activity logs for this task"""
+        # Removed DONE check to allow progressive progress tracking
         # To find activity logs for this task, we go via TodayPlan -> Catalog -> Task
         qs = ActivityLog.objects.filter(today_plan__catalog_item__task=self)
         
