@@ -247,8 +247,8 @@ class DailyPerformanceSerializer(serializers.Serializer):
         hour_difference = actual_hours - planned_hours
         
         # Planned vs Unplanned ratio
-        planned_only = sum(1 for plan in today_plans if not plan.is_unplanned)
-        unplanned = sum(1 for plan in today_plans if plan.is_unplanned)
+        planned_only = planned_summary.get('planned_tasks', {}).get('count', 0)
+        unplanned = planned_summary.get('unplanned_tasks', {}).get('count', 0)
         
         return {
             'task_completion_rate': task_completion_rate,
@@ -274,6 +274,8 @@ class DailyPerformanceSerializer(serializers.Serializer):
     def get_tasks(self, data):
         """Get detailed task list"""
         today_plans = data.get('today_plans', [])
+        activity_logs = data.get('activity_logs', [])
+        activity_log_dict = {log.today_plan_id: log.is_unplanned for log in activity_logs}
         
         tasks_data = []
         for plan in today_plans:
@@ -284,7 +286,7 @@ class DailyPerformanceSerializer(serializers.Serializer):
                 'planned_hours': round(plan.planned_duration_minutes / 60, 2),
                 'quadrant': plan.quadrant,
                 'status': plan.status,
-                'is_unplanned': plan.is_unplanned,
+                'is_unplanned': activity_log_dict.get(plan.id, False),
                 'activity_logs_count': plan.activity_logs.count(),
                 'total_worked_minutes': sum(log.minutes_worked for log in plan.activity_logs.all()),
                 'activities': []
