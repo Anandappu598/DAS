@@ -351,8 +351,11 @@ class TodayPlanSerializer(serializers.ModelSerializer):
         }
     
     def get_catalog_name(self, obj):
-        """Return catalog name or custom title"""
-        return obj.catalog_item.name if obj.catalog_item else obj.custom_title
+        """Return catalog name or custom title, with unplanned prefix if applicable"""
+        name = obj.catalog_item.name if obj.catalog_item else obj.custom_title
+        if obj.is_unplanned:
+            return f"[Unplanned] {name or 'Untitled'}"
+        return name
     
     def get_catalog_type(self, obj):
         """Return catalog type or 'CUSTOM' for custom tasks"""

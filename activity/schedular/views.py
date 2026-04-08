@@ -2763,7 +2763,8 @@ class TodayPlanViewSet(viewsets.ModelViewSet):
         activity_log = ActivityLog.objects.create(
             today_plan=today_plan,
             user=user,
-            actual_start_time=current_local_time
+            actual_start_time=current_local_time,
+            is_unplanned=today_plan.is_unplanned
         )
         
         # Update today plan status

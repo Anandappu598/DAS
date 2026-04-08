@@ -448,7 +448,7 @@ class Task(models.Model):
             qs = qs.filter(actual_start_time__date__lte=end_date)
             
         total_achieved = qs.aggregate(
-            total=Sum('hours_worked')
+            total=models.Sum('hours_worked')
         )['total'] or 0
         
         return float(total_achieved)
@@ -709,6 +709,7 @@ class TodayPlan(models.Model):
     order_index = models.IntegerField(default=0, help_text="Order in today's plan")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PLANNED')
     
+    is_unplanned = models.BooleanField(default=False, help_text="True if this was an unplanned addition to the daily plan")
     notes = models.TextField(blank=True, null=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
