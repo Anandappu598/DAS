@@ -2526,6 +2526,205 @@ class TodayPlanViewSet(viewsets.ModelViewSet):
             "plan": TodayPlanSerializer(today_plan).data
         }, status=status.HTTP_201_CREATED)
     
+    @action(detail=False, methods=['post'], url_path='add_item')
+    def add_item(self, request):
+        """
+        Unified endpoint to add either a catalog item or custom task to today's plan.
+        
+        Payload for custom task:
+        {
+            "item_type": "custom",
+            "title": "auth",
+            "plan_date": "2026-04-08",
+            "planned_duration_minutes": 60,
+            "quadrant": "Q1",
+            "is_unplanned": false,
+            "description": ""  (optional)
+        }
+        
+        Payload for catalog item:
+        {
+            "item_type": "catalog",
+            "catalog_id": 5,
+            "plan_date": "2026-04-08",
+            "quadrant": "Q1",
+            "is_unplanned": false
+        }
+        """
+        from datetime import datetime as dt
+        
+        item_type = request.data.get('item_type', '').lower()
+        plan_date = request.data.get('plan_date', timezone.now().date())
+        quadrant = request.data.get('quadrant', 'Q2')
+        is_unplanned = request.data.get('is_unplanned', False)
+        
+        # Convert plan_date string to date object if needed
+        if isinstance(plan_date, str):
+            plan_date = dt.strptime(plan_date, '%Y-%m-%d').date()
+        
+        # Validate item_type
+        if item_type not in ['custom', 'catalog']:
+            return Response(
+                {"error": "item_type must be either 'custom' or 'catalog'"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get user (handle anonymous)
+        if request.user.is_authenticated:
+            user = request.user
+            target_user_id = request.data.get('user_id')
+            if target_user_id:
+                from django.contrib.auth import get_user_model
+                User = get_user_model()
+                try:
+                    requested_user = User.objects.get(id=target_user_id)
+                    if user.role == 'ADMIN' or getattr(requested_user, 'department', None) == getattr(user, 'department', None):
+                        user = requested_user
+                except User.DoesNotExist:
+                    pass
+        else:
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            user = User.objects.first()
+        
+        if not user:
+            return Response({"error": "No user available"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Calculate order_index
+        last_plan = TodayPlan.objects.filter(user=user, plan_date=plan_date).order_by('-order_index').first()
+        order_index = (last_plan.order_index + 1) if last_plan else 0
+        
+        # ==========================================
+        # CUSTOM TASK
+        # ==========================================
+        if item_type == 'custom':
+            title = request.data.get('title')
+            if not title:
+                return Response(
+                    {"error": "title is required for custom tasks"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            description = request.data.get('description', '')
+            planned_duration_minutes = request.data.get('planned_duration_minutes')
+            scheduled_start_time = request.data.get('scheduled_start_time')
+            scheduled_end_time = request.data.get('scheduled_end_time')
+            
+            # Set default duration if not provided
+            if not planned_duration_minutes:
+                planned_duration_minutes = 30
+            
+            # Generate default scheduled times if not provided
+            if not scheduled_start_time:
+                now = timezone.now()
+                if last_plan and last_plan.scheduled_end_time:
+                    start_dt = datetime.combine(now.date(), last_plan.scheduled_end_time)
+                else:
+                    start_dt = now.replace(minute=0, second=0, microsecond=0)
+                    if now.minute > 0:
+                        start_dt = start_dt + timedelta(hours=1)
+                
+                scheduled_start_time = start_dt.time()
+            
+            # Calculate end time based on duration
+            if not scheduled_end_time and scheduled_start_time:
+                if isinstance(scheduled_start_time, str):
+                    try:
+                        start = datetime.strptime(scheduled_start_time, '%H:%M:%S').time()
+                    except ValueError:
+                        start = datetime.strptime(scheduled_start_time, '%H:%M').time()
+                else:
+                    start = scheduled_start_time
+                
+                start_dt = datetime.combine(timezone.now().date(), start)
+                end_dt = start_dt + timedelta(minutes=int(planned_duration_minutes))
+                scheduled_end_time = end_dt.time()
+            
+            today_plan = TodayPlan.objects.create(
+                user=user,
+                custom_title=title,
+                custom_description=description,
+                plan_date=plan_date,
+                scheduled_start_time=scheduled_start_time,
+                scheduled_end_time=scheduled_end_time,
+                planned_duration_minutes=planned_duration_minutes,
+                quadrant=quadrant,
+                order_index=order_index,
+                notes=description,
+                is_unplanned=is_unplanned
+            )
+        
+        # ==========================================
+        # CATALOG ITEM
+        # ==========================================
+        elif item_type == 'catalog':
+            catalog_id = request.data.get('catalog_id')
+            if not catalog_id:
+                return Response(
+                    {"error": "catalog_id is required for catalog items"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            try:
+                catalog_item = Catalog.objects.get(id=catalog_id)
+            except Catalog.DoesNotExist:
+                return Response(
+                    {"error": "Catalog item not found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            scheduled_start_time = request.data.get('scheduled_start_time')
+            scheduled_end_time = request.data.get('scheduled_end_time')
+            planned_duration_minutes = request.data.get('planned_duration_minutes')
+            
+            # Calculate duration if not provided
+            if not planned_duration_minutes:
+                if scheduled_start_time and scheduled_end_time:
+                    try:
+                        start = datetime.strptime(scheduled_start_time, '%H:%M:%S').time()
+                        end = datetime.strptime(scheduled_end_time, '%H:%M:%S').time()
+                        start_dt = datetime.combine(timezone.now().date(), start)
+                        end_dt = datetime.combine(timezone.now().date(), end)
+                        planned_duration_minutes = int((end_dt - start_dt).total_seconds() / 60)
+                    except (ValueError, AttributeError):
+                        planned_duration_minutes = int(float(catalog_item.estimated_hours) * 60)
+                else:
+                    # Use estimated hours from catalog
+                    planned_duration_minutes = int(float(catalog_item.estimated_hours) * 60)
+            
+            # Generate default scheduled times if not provided
+            if not scheduled_start_time or not scheduled_end_time:
+                now = timezone.now()
+                if last_plan and last_plan.scheduled_end_time:
+                    start_dt = datetime.combine(now.date(), last_plan.scheduled_end_time)
+                else:
+                    start_dt = now.replace(minute=0, second=0, microsecond=0)
+                    if now.minute > 0:
+                        start_dt = start_dt + timedelta(hours=1)
+                
+                end_dt = start_dt + timedelta(minutes=planned_duration_minutes)
+                scheduled_start_time = start_dt.time()
+                scheduled_end_time = end_dt.time()
+            
+            today_plan = TodayPlan.objects.create(
+                user=user,
+                catalog_item=catalog_item,
+                plan_date=plan_date,
+                scheduled_start_time=scheduled_start_time,
+                scheduled_end_time=scheduled_end_time,
+                planned_duration_minutes=planned_duration_minutes,
+                quadrant=quadrant,
+                order_index=order_index,
+                notes=request.data.get('notes', ''),
+                is_unplanned=is_unplanned
+            )
+        
+        return Response({
+            "message": f"{item_type.title()} item added to today's plan successfully",
+            "item_type": item_type,
+            "plan": TodayPlanSerializer(today_plan).data
+        }, status=status.HTTP_201_CREATED)
+    
     @action(detail=True, methods=['post'])
     def move_to_activity_log(self, request, pk=None):
         """Move plan item to activity log (click arrow button)"""
