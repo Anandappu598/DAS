@@ -710,7 +710,6 @@ class TodayPlan(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PLANNED')
     
     notes = models.TextField(blank=True, null=True)
-    is_unplanned = models.BooleanField(default=False, help_text="True if this task was started directly from the catalog")
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -743,6 +742,9 @@ class ActivityLog(models.Model):
     hours_worked = models.DecimalField(max_digits=5, decimal_places=2, default=0, help_text="Hours worked")
     minutes_worked = models.IntegerField(default=0, help_text="Total minutes worked")
     extra_minutes = models.IntegerField(default=0, help_text="Extra minutes worked beyond planned time")
+    
+    # Mark if this work was planned or unplanned
+    is_unplanned = models.BooleanField(default=False, help_text="True if this work was on an unplanned task")
     
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='IN_PROGRESS')
     

@@ -56,6 +56,7 @@ class DailyPerformanceSerializer(serializers.Serializer):
     def get_planned_summary(self, data):
         """Get planned tasks information with detailed breakdown"""
         today_plans = data.get('today_plans', [])
+        activity_logs = data.get('activity_logs', [])
         user = data.get('user')
         date = data.get('date')
         
@@ -69,9 +70,12 @@ class DailyPerformanceSerializer(serializers.Serializer):
             # If no daily planner entry, calculate from tasks
             daily_plan_hours = None
         
-        # Separate planned and unplanned tasks
-        planned_tasks_list = [plan for plan in today_plans if not plan.is_unplanned]
-        unplanned_tasks_list = [plan for plan in today_plans if plan.is_unplanned]
+        # Separate planned and unplanned tasks based on ActivityLog.is_unplanned
+        # A task is considered unplanned if it has an activity log marked as unplanned
+        activity_log_dict = {log.today_plan_id: log.is_unplanned for log in activity_logs}
+        
+        planned_tasks_list = [plan for plan in today_plans if activity_log_dict.get(plan.id, False) == False]
+        unplanned_tasks_list = [plan for plan in today_plans if activity_log_dict.get(plan.id, False) == True]
         
         # Calculate minutes
         planned_minutes = sum(plan.planned_duration_minutes for plan in planned_tasks_list)
@@ -145,13 +149,17 @@ class DailyPerformanceSerializer(serializers.Serializer):
         today_plans = data.get('today_plans', [])
         activity_logs = data.get('activity_logs', [])
         
-        # Separate planned and unplanned today_plans
-        planned_plans = [plan for plan in today_plans if not plan.is_unplanned]
-        unplanned_plans = [plan for plan in today_plans if plan.is_unplanned]
+        # Separate activity logs based on is_unplanned flag
+        planned_activity_logs = [log for log in activity_logs if not log.is_unplanned]
+        unplanned_activity_logs = [log for log in activity_logs if log.is_unplanned]
         
-        # Get activity logs for planned vs unplanned
-        planned_activity_logs = [log for log in activity_logs if log.today_plan in planned_plans]
-        unplanned_activity_logs = [log for log in activity_logs if log.today_plan in unplanned_plans]
+        # Get the TodayPlan IDs for planned and unplanned work
+        planned_plan_ids = set(log.today_plan_id for log in planned_activity_logs)
+        unplanned_plan_ids = set(log.today_plan_id for log in unplanned_activity_logs)
+        
+        # Get corresponding today_plans
+        planned_plans = [plan for plan in today_plans if plan.id in planned_plan_ids]
+        unplanned_plans = [plan for plan in today_plans if plan.id in unplanned_plan_ids]
         
         # Calculate for planned tasks
         planned_minutes_worked = sum(log.minutes_worked for log in planned_activity_logs)
