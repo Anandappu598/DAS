@@ -54,22 +54,26 @@ class DailyPerformanceView(APIView):
         ).prefetch_related('today_plan')
         
         # Prepare data for serializer
-        data = {
+        serializer_data = {
             'date': performance_date,
             'user': user,
             'today_plans': list(today_plans),
             'activity_logs': list(activity_logs)
         }
         
-        serializer = DailyPerformanceSerializer(data)
+        # Initialize serializer with the data context
+        serializer = DailyPerformanceSerializer(serializer_data)
+        
+        # Get all serialized data
+        response_data = serializer.data
         
         return Response({
-            'date': performance_date,
+            'date': str(performance_date),
             'user': user.email,
-            'planned': serializer.data.get('planned_summary'),
-            'actual': serializer.data.get('actual_summary'),
-            'metrics': serializer.data.get('metrics'),
-            'tasks': serializer.data.get('tasks')
+            'planned_summary': response_data.get('planned_summary', {}),
+            'actual_summary': response_data.get('actual_summary', {}),
+            'metrics': response_data.get('metrics', {}),
+            'tasks': response_data.get('tasks', [])
         }, status=status.HTTP_200_OK)
 
 
